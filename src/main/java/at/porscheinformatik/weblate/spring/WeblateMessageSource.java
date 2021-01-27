@@ -1,4 +1,4 @@
-package at.porscheinformatik.weblate;
+package at.porscheinformatik.weblate.spring;
 
 import java.net.URI;
 import java.net.URISyntaxException;

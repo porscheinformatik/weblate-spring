@@ -1,4 +1,4 @@
-package at.porscheinformatik.weblate;
+package at.porscheinformatik.weblate.spring;
 
 import org.springframework.http.HttpRequest;
 import org.springframework.http.MediaType;
