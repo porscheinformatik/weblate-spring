@@ -1,9 +1,7 @@
-name: Build project
+name: Build main
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
     branches: [ main ]
 
 jobs:
@@ -20,3 +18,9 @@ jobs:
           java-version: ${{ matrix.java }}
       - name: Build with Maven
         run: mvn -B verify
+      - name: Decode GPG Keyring File
+        run: |
+          echo "${{secrets.SIGNING_SECRET_KEY_RING_FILE}}" > ~/.m2/secring.gpg.b64
+          base64 -d ~/.m2/secring.gpg.b64 > ~/.m2/secring.gpg
+      - name: Deploy SNAPSHOT to Central
+        run: mvn -B deploy -Possrh -Dgpg.secretKeyring=~/.m2/secring.gpg -Dgpg.keyname="${{secrets.SIGNING_KEY_ID}}" -Dgpg.passphrase=""
