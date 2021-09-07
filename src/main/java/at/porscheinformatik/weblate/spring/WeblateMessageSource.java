@@ -177,7 +177,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     }
 
     try {
-      URI uri = new URI(baseUrl + "/api/translations/" + project + "/" + component + "/" + language + "/file?format=json");
+      URI uri = new URI(baseUrl + "/api/translations/" + project + "/" + component + "/" + language + "/file/?format=json");
 
       RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.APPLICATION_JSON).build();
 
