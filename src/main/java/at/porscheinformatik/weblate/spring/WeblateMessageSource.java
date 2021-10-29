@@ -38,6 +38,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private String baseUrl;
   private String project;
   private String component;
+  private boolean loadOnlyTranslated = false;
 
   private Set<Locale> existingLocales;
   private final Object existingLocalesLock = new Object();
@@ -155,7 +156,6 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     translations = new HashMap<>(loadTranslation(new Locale(locale.getLanguage())));
 
     if (StringUtils.hasText(locale.getCountry())) {
-      Map<String, String> countrySpecific = loadTranslation(locale);
       translations.putAll(loadTranslation(locale));
     }
 
@@ -177,21 +177,61 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     }
 
     try {
-      URI uri = new URI(baseUrl + "/api/translations/" + project + "/" + component + "/" + language + "/file/?format=json");
-
-      RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.APPLICATION_JSON).build();
-
       if (restTemplate == null) {
         restTemplate = new RestTemplate();
       }
-
-      ResponseEntity<Map<String, String>> response = restTemplate.exchange(request, MAP_STRING_STRING);
-
-      return response.getBody();
+      if (loadOnlyTranslated)
+      {
+        return loadTranslationsOnlyTranslated(language);
+      }
+      else
+      {
+        return loadTranslationsDefault(language);
+      }
     } catch (RestClientException | URISyntaxException e) {
       logger.warn("Could not load translations for lang " + language, e);
     }
     return emptyMap();
+  }
+
+  private Map<String, String> loadTranslationsDefault(Locale language) throws URISyntaxException
+  {
+    URI uri = new URI(baseUrl + "/api/translations/" + project + "/" + component + "/" + language + "/file/?format=json");
+
+    RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.APPLICATION_JSON).build();
+
+    ResponseEntity<Map<String, String>> response = restTemplate.exchange(request, MAP_STRING_STRING);
+
+    return response.getBody();
+  }
+
+  private Map<String, String> loadTranslationsOnlyTranslated(Locale language) throws URISyntaxException
+  {
+    URI uri = new URI(baseUrl + "/api/translations/" + project + "/" + component + "/" + language + "/units/");
+
+    RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.APPLICATION_JSON).build();
+
+    ResponseEntity<WeblateUnits> response = restTemplate.exchange(request, WeblateUnits.class);
+
+    if (response.hasBody())
+    {
+      final WeblateUnits units = response.getBody();
+      if (units != null && units.getResults() != null)
+      {
+        Map<String, String> resultMap = new LinkedHashMap<>();
+        units.getResults().stream()
+          .filter(WeblateUnit::getTranslated)
+          .forEach(unit -> resultMap.put(unit.getContext(), concatTranslation(unit.getTarget())));
+
+        return resultMap;
+      }
+    }
+    return Collections.emptyMap();
+  }
+
+  private String concatTranslation(List<String> texts)
+  {
+    return texts != null ? texts.stream().collect(Collectors.joining()) : null;
   }
 
   private Set<Locale> loadLocales() {
@@ -258,4 +298,21 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     return null;
   }
 
+  /**
+   * by true it ignores all not translated messages
+   * by false it uses the default from Weblate
+   * @return loadOnlyTranslated
+   */
+  public boolean isLoadOnlyTranslated()
+  {
+    return loadOnlyTranslated;
+  }
+
+  /**
+   * @param loadOnlyTranslated set to true to prevent loading of untranslated texts as empty string
+   */
+  public void setLoadOnlyTranslated(boolean loadOnlyTranslated)
+  {
+    this.loadOnlyTranslated = loadOnlyTranslated;
+  }
 }
