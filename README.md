@@ -21,6 +21,7 @@ Then declare the `WeblateMessageSource` as a bean. You can configure the `Messag
 - baseUrl (required) - the base URL of your Weblate instance
 - project (required) - the project slug
 - component (required) - the component slug
+- loadOnlyTranslated (optional) - true if ignore untranslated items to load as empty strings
 
 Usually you might want to have the local message bundles as a backup when Weblate is not running. Therefore, you can
 set a `ResourceBundleMessageSource` as the parent of the `WeblateMessageSource`.
@@ -41,6 +42,7 @@ public WeblateMessageSource messageSource() {
   weblateMessageSource.setComponent("my-component");
   weblateMessageSource.useAuthentication("api-key");
   weblateMessageSource.setParentMessageSource(localMessageSource());
+  weblateMessageSource.setLoadOnlyTranslated(true);
   return weblateMessageSource;
 }
 
