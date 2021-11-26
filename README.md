@@ -46,7 +46,7 @@ public WeblateMessageSource messageSource() {
 
 @Bean
 MessageSource localMessageSource() {
-  var localMessageSourc = new AllPropertiesReloadableResourceBundleMessageSource();
+  var localMessageSource = new AllPropertiesReloadableResourceBundleMessageSource();
   localMessageSource.setDefaultEncoding(StandardCharsets.UTF_8.name());
   localMessageSource.setBasename("messages");
   localMessageSource.setFallbackToSystemLocale(false);
