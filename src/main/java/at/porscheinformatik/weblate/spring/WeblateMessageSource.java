@@ -118,7 +118,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    * Set the {@link RestTemplate} to use for getting data from Weblate REST API.
    * <p>
    * Please configure the given parameter with UTF-8 as the standard message converter:
-   * <code><pre>restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));</pre></code>
+   * <pre><code>restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));</code></pre>
    *
    * @param restTemplate the {@link RestTemplate}
    */
