@@ -6,6 +6,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -115,6 +116,9 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
   /**
    * Set the {@link RestTemplate} to use for getting data from Weblate REST API.
+   * <p>
+   * Please configure the given parameter with UTF-8 as the standard message converter:
+   * <code><pre>restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));</pre></code>
    *
    * @param restTemplate the {@link RestTemplate}
    */
@@ -133,7 +137,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    */
   public void useAuthentication(String authToken) {
     if (restTemplate == null) {
-      restTemplate = new RestTemplate();
+      restTemplate = createRestTemplate();
     }
     restTemplate.setInterceptors(singletonList(new WeblateAuthenticationInterceptor(authToken)));
   }
@@ -206,7 +210,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.TEXT_PLAIN).build();
 
       if (restTemplate == null) {
-        restTemplate = new RestTemplate();
+        restTemplate = createRestTemplate();
       }
 
       ResponseEntity<String> response = restTemplate.exchange(request, String.class);
@@ -228,7 +232,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.APPLICATION_JSON).build();
 
       if (restTemplate == null) {
-        restTemplate = new RestTemplate();
+        restTemplate = createRestTemplate();
       }
 
       ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(request, LIST_MAP_STRING_OBJECT);
@@ -281,6 +285,12 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       return Locale.forLanguageTag(((String) value).replace("_", "-"));
     }
     return null;
+  }
+
+  private static RestTemplate createRestTemplate() {
+    RestTemplate restTemplate = new RestTemplate();
+    restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));
+    return restTemplate;
   }
 
 }
