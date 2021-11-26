@@ -1,12 +1,5 @@
 package at.porscheinformatik.weblate.spring;
 
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.text.MessageFormat;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-
 import org.springframework.context.MessageSource;
 import org.springframework.context.support.AbstractMessageSource;
 import org.springframework.core.ParameterizedTypeReference;
@@ -17,7 +10,19 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
-import static java.util.Collections.*;
+import java.io.IOException;
+import java.io.StringReader;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.text.MessageFormat;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+import static java.util.Collections.emptySet;
+import static java.util.Collections.singletonList;
+import static org.springframework.web.util.UriUtils.encode;
 
 /**
  * {@link MessageSource} loading texts from Weblate translation server via REST API.
@@ -29,8 +34,6 @@ import static java.util.Collections.*;
  * </p>
  */
 public class WeblateMessageSource extends AbstractMessageSource implements AllPropertiesSource {
-  private static final ParameterizedTypeReference<Map<String, String>> MAP_STRING_STRING = new ParameterizedTypeReference<Map<String, String>>() {
-  };
   private static final ParameterizedTypeReference<List<Map<String, Object>>> LIST_MAP_STRING_OBJECT = new ParameterizedTypeReference<List<Map<String, Object>>>() {
   };
 
@@ -38,10 +41,11 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private String baseUrl;
   private String project;
   private String component;
+  private String query = "state:>=translated";
 
   private Set<Locale> existingLocales;
   private final Object existingLocalesLock = new Object();
-  private final Map<Locale, Map<String, String>> translationsCache = new ConcurrentHashMap<>();
+  private final Map<Locale, Properties> translationsCache = new ConcurrentHashMap<>();
 
   /**
    * @return the Weblate base URL
@@ -89,6 +93,24 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    */
   public void setComponent(String component) {
     this.component = component;
+  }
+
+  /**
+   * @return the Weblate query
+   */
+  public String getQuery() {
+    return query;
+  }
+
+  /**
+   * Set the Weblate query for extracting the texts. Default is "state:&gt;=translated"
+   * <p>
+   * See also: <a href="https://docs.weblate.org/en/latest/user/search.html">Weblate Search</a>.
+   *
+   * @param query the Weblate query
+   */
+  public void setQuery(String query) {
+    this.query = query;
   }
 
   /**
@@ -145,26 +167,26 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     }
   }
 
-  private Map<String, String> loadTranslations(Locale locale, boolean forceReload) {
-    Map<String, String> translations = translationsCache.get(locale);
+  private Properties loadTranslations(Locale locale, boolean forceReload) {
+    Properties translations = translationsCache.get(locale);
 
     if (translations != null && !forceReload) {
       return translations;
     }
 
-    translations = new HashMap<>(loadTranslation(new Locale(locale.getLanguage())));
+    translations = loadTranslation(new Locale(locale.getLanguage()));
 
     if (StringUtils.hasText(locale.getCountry())) {
-      Map<String, String> countrySpecific = loadTranslation(locale);
-      translations.putAll(loadTranslation(locale));
+      Properties countrySpecific = loadTranslation(locale);
+      translations.putAll(countrySpecific);
     }
 
-    translationsCache.put(locale, Collections.unmodifiableMap(translations));
+    translationsCache.put(locale, translations);
 
     return translations;
   }
 
-  private Map<String, String> loadTranslation(Locale language) {
+  private Properties loadTranslation(Locale language) {
     synchronized (existingLocalesLock) {
       if (existingLocales == null) {
         existingLocales = loadLocales();
@@ -172,26 +194,29 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
       if (!existingLocales.contains(language)) {
         logger.info("Locale not exists " + language);
-        return emptyMap();
+        return new Properties();
       }
     }
 
-    try {
-      URI uri = new URI(baseUrl + "/api/translations/" + project + "/" + component + "/" + language + "/file/?format=json");
+    Properties properties = new Properties();
 
-      RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.APPLICATION_JSON).build();
+    try {
+      URI uri = new URI(baseUrl + "/api/translations/" + project + "/" + component + "/" + language + "/file/?q=" + encode(query, StandardCharsets.UTF_8));
+
+      RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.TEXT_PLAIN).build();
 
       if (restTemplate == null) {
         restTemplate = new RestTemplate();
       }
 
-      ResponseEntity<Map<String, String>> response = restTemplate.exchange(request, MAP_STRING_STRING);
+      ResponseEntity<String> response = restTemplate.exchange(request, String.class);
 
-      return response.getBody();
-    } catch (RestClientException | URISyntaxException e) {
+      properties.load(new StringReader(response.getBody()));
+    } catch (RestClientException | IOException | URISyntaxException e) {
       logger.warn("Could not load translations for lang " + language, e);
     }
-    return emptyMap();
+
+    return properties;
   }
 
   private Set<Locale> loadLocales() {
@@ -230,15 +255,15 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
   @Override
   protected String resolveCodeWithoutArguments(String code, Locale locale) {
-    Map<String, String> translations = loadTranslations(locale, false);
-    return translations.get(code);
+    Properties translations = loadTranslations(locale, false);
+    return translations.getProperty(code);
   }
 
   @Override
   public Properties getAllProperties(Locale locale) {
     Properties allProperties = new Properties();
 
-    final Map<String, String> translations = loadTranslations(locale, false);
+    Properties translations = loadTranslations(locale, false);
     translations.forEach(allProperties::putIfAbsent);
 
     MessageSource parentMessageSource = getParentMessageSource();
@@ -253,7 +278,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private static Locale extractLocale(Map<String, Object> entry) {
     Object value = entry.get("code");
     if (value instanceof String) {
-      return Locale.forLanguageTag(((String) value).replaceAll("_", "-"));
+      return Locale.forLanguageTag(((String) value).replace("_", "-"));
     }
     return null;
   }
