@@ -215,9 +215,13 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
       ResponseEntity<String> response = restTemplate.exchange(request, String.class);
 
-      properties.load(new StringReader(response.getBody()));
+      if (response.getStatusCode().is2xxSuccessful() && response.hasBody()) {
+        properties.load(new StringReader(response.getBody()));
+      } else {
+        logger.warn("Got empty or non-200 response (status=" + response.getStatusCode() + ",body=" + response.getBody() + ")");
+      }
     } catch (RestClientException | IOException | URISyntaxException e) {
-      logger.warn("Could not load translations for lang " + language, e);
+      logger.warn("Could not load translations (lang=" + language + ")", e);
     }
 
     return properties;
