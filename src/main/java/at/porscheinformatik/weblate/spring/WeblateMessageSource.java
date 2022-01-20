@@ -19,6 +19,8 @@ import java.nio.charset.StandardCharsets;
 import java.text.MessageFormat;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static java.util.Collections.emptySet;
@@ -35,6 +37,8 @@ import static org.springframework.web.util.UriUtils.encode;
  * </p>
  */
 public class WeblateMessageSource extends AbstractMessageSource implements AllPropertiesSource {
+  private static final Pattern WEBLATE_LOCALE_PATTERN = Pattern.compile(
+    "^(?<lang>[a-z]{2,3})(?:_(?<script>[a-z]{4}))?(?:_(?<region>[a-z]{2}))?(?:_(?<variant>[a-z0-9-]{5,8})|@(?<xvariant>[a-z0-9-]{1,8}))?$", Pattern.CASE_INSENSITIVE);
   private static final ParameterizedTypeReference<List<Map<String, Object>>> LIST_MAP_STRING_OBJECT = new ParameterizedTypeReference<List<Map<String, Object>>>() {
   };
 
@@ -43,6 +47,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private String project;
   private String component;
   private String query = "state:>=translated";
+  private Map<String, Locale> codeToLocale = new HashMap<>();
 
   private Set<Locale> existingLocales;
   private final Object existingLocalesLock = new Object();
@@ -129,6 +134,39 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     this.restTemplate = restTemplate;
   }
 
+  public RestTemplate getRestTemplate() {
+    if (restTemplate == null) {
+      restTemplate = createRestTemplate();
+    }
+    return restTemplate;
+  }
+
+  /**
+   * @return the manual mapping of codes to {@link Locale}s
+   */
+  public Map<String, Locale> getCodeToLocale() {
+    return codeToLocale;
+  }
+
+  /**
+   * Set the manual mapping of Weblate codes to {@link Locale}s.
+   * 
+   * @param codeToLocale the mapping
+   */
+  public void setCodeToLocale(Map<String, Locale> codeToLocale) {
+    this.codeToLocale = codeToLocale;
+  }
+
+  /**
+   * Registers a manual mapping of a Weblate code to a local.
+   * 
+   * @param code the Weblate language code
+   * @param locale a {@link Locale} with 
+   */
+  public void registerLocaleMapping(String code, Locale locale) {
+    codeToLocale.put(code, locale);
+  }
+
   /**
    * Sets {@link WeblateAuthenticationInterceptor} for calling the REST API. <b>Be aware</b>: this
    * replaces all interceptors in the {@link RestTemplate}.
@@ -136,10 +174,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    * @param authToken Weblate API token
    */
   public void useAuthentication(String authToken) {
-    if (restTemplate == null) {
-      restTemplate = createRestTemplate();
-    }
-    restTemplate.setInterceptors(singletonList(new WeblateAuthenticationInterceptor(authToken)));
+    getRestTemplate().setInterceptors(singletonList(new WeblateAuthenticationInterceptor(authToken)));
   }
 
   /**
@@ -206,14 +241,9 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
     try {
       URI uri = new URI(baseUrl + "/api/translations/" + project + "/" + component + "/" + language + "/file/?q=" + encode(query, StandardCharsets.UTF_8));
-
       RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.TEXT_PLAIN).build();
 
-      if (restTemplate == null) {
-        restTemplate = createRestTemplate();
-      }
-
-      ResponseEntity<String> response = restTemplate.exchange(request, String.class);
+      ResponseEntity<String> response = getRestTemplate().exchange(request, String.class);
 
       if (response.getStatusCode().is2xxSuccessful() && response.hasBody()) {
         properties.load(new StringReader(response.getBody()));
@@ -235,17 +265,13 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
       RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.APPLICATION_JSON).build();
 
-      if (restTemplate == null) {
-        restTemplate = createRestTemplate();
-      }
-
-      ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(request, LIST_MAP_STRING_OBJECT);
+      ResponseEntity<List<Map<String, Object>>> response = getRestTemplate().exchange(request, LIST_MAP_STRING_OBJECT);
       if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
         return emptySet();
       }
 
       return response.getBody().stream()
-        .map(WeblateMessageSource::extractLocale)
+        .map(this::extractLocale)
         .filter(Objects::nonNull)
         .collect(Collectors.toSet());
 
@@ -283,10 +309,13 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     return allProperties;
   }
 
-  private static Locale extractLocale(Map<String, Object> entry) {
-    Object value = entry.get("code");
-    if (value instanceof String) {
-      return Locale.forLanguageTag(((String) value).replace("_", "-"));
+  Locale extractLocale(Map<String, Object> entry) {
+    Object code = entry.get("code");
+    if (code instanceof String) {
+      if (codeToLocale.containsKey(code)) {
+        return codeToLocale.get(code);
+      }
+      return WeblateMessageSource.deriveLocaleFromCode((String) code);
     }
     return null;
   }
@@ -297,4 +326,38 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     return restTemplate;
   }
 
+  /**
+   * Attempts to derive a {@link Locale} from a given code.
+   *
+   * @return the derived locale or null when no locale could be derived
+   */
+  static Locale deriveLocaleFromCode(String code) {
+    if (code == null) {
+      return null;
+    }
+
+    final Matcher codeMatcher = WEBLATE_LOCALE_PATTERN.matcher(code);
+    if (codeMatcher.matches()) {
+      final Locale.Builder builder = new Locale.Builder();
+
+      builder.setLanguage(codeMatcher.group("lang"));
+
+      Optional.ofNullable(codeMatcher.group("script"))
+        .ifPresent(builder::setScript);
+
+      Optional.ofNullable(codeMatcher.group("region"))
+        .ifPresent(builder::setRegion);
+
+      Optional.ofNullable(codeMatcher.group("variant"))
+        .ifPresent(builder::setVariant);
+
+      // x-lvariant is special as normally variant must be 6-8 characters long, whereas lvariant can be shorter
+      Optional.ofNullable(codeMatcher.group("xvariant"))
+        .ifPresent(xvariant -> builder.setExtension('x', "lvariant-" + xvariant));
+
+      return builder.build();
+    }
+
+    return null;
+  }
 }
