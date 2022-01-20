@@ -47,6 +47,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private Set<String> existingCodes;
   private final Object existingCodesLock = new Object();
   private final Map<Locale, Properties> translationsCache = new ConcurrentHashMap<>();
+  private Map<Locale, String> localeToCode = new HashMap<>();
 
   /**
    * @return the Weblate base URL
@@ -143,6 +144,32 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
+   * @return the manual mapping of {@link Locale}s to Weblate codes
+   */
+  public Map<Locale, String> getLocaleToCode() {
+    return localeToCode;
+  }
+
+  /**
+   * Set the manual mapping of {@link Locale}s to Weblate codes.
+   *
+   * @param localeToCode the mapping
+   */
+  public void setLocaleToCode(Map<Locale, String> localeToCode) {
+    this.localeToCode = localeToCode;
+  }
+
+  /**
+   * Registers a manual mapping of a locale to a Weblate code.
+   *
+   * @param locale a {@link Locale} with
+   * @param code   the Weblate language code
+   */
+  public void registerLocaleMapping(Locale locale, String code) {
+    localeToCode.put(locale, code);
+  }
+
+  /**
    * Clears the cache for all locales and message bundles.
    */
   public void clearCache() {
@@ -200,15 +227,20 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     synchronized (existingCodesLock) {
       if (existingCodes == null) {
         existingCodes = loadCodes();
-        deriveLocalesForCodes();
+        deriveLocalesFromCodes();
       }
     }
 
-    String code = WeblateCodes.getCodeForLocale(language);
-    if (Objects.isNull(code) || !existingCodes.contains(code)) {
-      logger.info("No Code registered for Locale " + language);
-      return new Properties();
-    }
+    return Optional.ofNullable(localeToCode.get(language))
+      .filter(existingCodes::contains)
+      .map(this::loadTranslation)
+      .orElseGet(() -> {
+        logger.info("No Code registered for Locale " + language);
+        return new Properties();
+      });
+  }
+
+  private Properties loadTranslation(String code) {
 
     Properties properties = new Properties();
 
@@ -229,7 +261,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
         logger.warn("Got empty or non-200 response (status=" + response.getStatusCode() + ",body=" + response.getBody() + ")");
       }
     } catch (RestClientException | IOException | URISyntaxException e) {
-      logger.warn("Could not load translations (lang=" + language + ")", e);
+      logger.warn("Could not load translations (code=" + code + ")", e);
     }
 
     return properties;
@@ -292,21 +324,34 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   private String extractCode(Map<String, Object> entry) {
-    Object code = entry.get("code");
-    if (code instanceof String) {
-      return (String) code;
-    }
-    return null;
+    return Optional.ofNullable(entry.get("code"))
+      .filter(String.class::isInstance)
+      .map(String.class::cast)
+      .orElse(null);
   }
 
-  private void deriveLocalesForCodes() {
-    existingCodes.forEach(code -> {
-        if (WeblateCodes.deriveLocaleFromCode(code)) {
-          logger.warn("Could not derive java.util.Locale for weblate-code: " + code + "; consider adding it with WeblateCodes::registerLocale");
+  private void deriveLocalesFromCodes() {
+    existingCodes.stream()
+      .filter(code -> !localeToCode.containsValue(code))
+      .forEach(code -> {
+        final Locale locale = WeblateUtils.deriveLocaleFromCode(code);
+        if (Objects.isNull(locale)) {
+          logger.warn(String.format("Could not derive a Locale for code[%s], " +
+            "consider adding it with weblateMessageSource.registerLocaleMapping", code));
+
+        } else if (localeToCode.containsKey(locale)) {
+          logger.warn(String.format("derived Locale[%s] from code[%s], but Locale was already registered for code[%s]",
+            locale, code, localeToCode.get(locale)
+          ));
+
+        } else {
+          logger.info(String.format("derived Locale[%s] from code[%s]", locale, code));
+          registerLocaleMapping(locale, code);
+
         }
-      }
-    );
+      });
   }
+
 
   private static RestTemplate createRestTemplate() {
     RestTemplate restTemplate = new RestTemplate();

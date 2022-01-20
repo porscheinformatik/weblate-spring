@@ -1,7 +1,7 @@
 package at.porscheinformatik.weblate.spring;
 
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -13,8 +13,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Locale;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -27,7 +27,7 @@ public class WeblateMessageSourceTest {
 
   private MockRestServiceServer mockServer;
 
-  @Before
+  @BeforeEach
   public void init() {
     messageSource = new WeblateMessageSource();
     messageSource.setRestTemplate(restTemplate);

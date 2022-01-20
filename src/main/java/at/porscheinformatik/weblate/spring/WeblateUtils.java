@@ -7,46 +7,19 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class WeblateCodes {
-  private static final ConcurrentHashMap<Locale, String> weblateCodes = new ConcurrentHashMap<>();
+public class WeblateUtils {
 
   private static final Pattern WEBLATE_LOCALE_PATTERN = Pattern.compile(
     "^(?<lang>[a-z]{2,3})(?:_(?<script>[a-z]{4}))?(?:_(?<region>[a-z]{2}))?(?:_(?<variant>[a-z0-9-]{5,8})|@(?<xvariant>[a-z0-9-]{1,8}))?$", Pattern.CASE_INSENSITIVE);
 
   /**
-   * resolves a WeblateCode for a given Locale
+   * Attempts to derive a {@link Locale} from a given code.
    *
-   * @param locale
-   * @return WeblateCode or null if locale is not registered
+   * @return the derived locale or null when no locale could be derived
    */
-  public static String getCodeForLocale(Locale locale) {
-    return weblateCodes.getOrDefault(locale, null);
-  }
-
-  /**
-   * registers a Locale - WeblateCode pair.
-   *
-   * @param locale a unique non-null
-   * @param code   an WeblateCode
-   */
-  public static void registerLocale(Locale locale, String code) {
-    Objects.requireNonNull(locale);
-
+  public static Locale deriveLocaleFromCode(String code) {
     if (Objects.isNull(code)) {
-      weblateCodes.remove(locale);
-    } else {
-      weblateCodes.put(locale, code);
-    }
-  }
-
-  /**
-   * attempts to derive and register a java.util.Locale from a given code.
-   *
-   * @return true when code is registered or could be registered, false when no locale could be derived or derived locale was already registered for another code
-   */
-  public static boolean deriveLocaleFromCode(String code) {
-    if (weblateCodes.containsValue(code)) {
-      return true;
+      return null;
     }
 
     final Matcher codeMatcher = WEBLATE_LOCALE_PATTERN.matcher(code);
@@ -68,13 +41,9 @@ public class WeblateCodes {
       Optional.ofNullable(codeMatcher.group("xvariant"))
         .ifPresent(xvariant -> builder.setExtension('x', "lvariant-" + xvariant));
 
-      final Locale locale = builder.build();
-      if (!weblateCodes.containsKey(locale)) {
-        registerLocale(locale, code);
-        return true;
-      }
+      return builder.build();
     }
 
-    return false;
+    return null;
   }
 }
