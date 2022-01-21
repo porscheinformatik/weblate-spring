@@ -3,10 +3,12 @@ package at.porscheinformatik.weblate.spring;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Utility class for handling Weblate locale codes.
+ */
 public class WeblateUtils {
 
   private static final Pattern WEBLATE_LOCALE_PATTERN = Pattern.compile(
@@ -15,6 +17,7 @@ public class WeblateUtils {
   /**
    * Attempts to derive a {@link Locale} from a given code.
    *
+   * @param code the code to derive from
    * @return the derived locale or null when no locale could be derived
    */
   public static Locale deriveLocaleFromCode(String code) {
