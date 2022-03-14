@@ -117,6 +117,13 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
+   * @return all existing locales of the configured weblate component
+   */
+  public Set<Locale> getExistingLocales() {
+    return this.existingLocales;
+  }
+
+  /**
    * Set the {@link RestTemplate} to use for getting data from Weblate REST API.
    * <p>
    * Please configure the given parameter with UTF-8 as the standard message converter:
