@@ -15,7 +15,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Dependency Updates:
-  - Spring Boot 2.6.3
+  - Spring Boot 2.6.5
 
 ## [0.3.1] - 2021-11-29 
 
