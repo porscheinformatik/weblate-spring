@@ -120,7 +120,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    * @return all existing locales of the configured weblate component
    */
   public Set<Locale> getExistingLocales() {
-    return this.existingLocales;
+    return this.existingLocales.keySet();
   }
 
   /**
