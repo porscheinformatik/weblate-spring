@@ -57,7 +57,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private String project;
   private String component;
   private String query = "state:>=translated";
-  private long maxAgeMilis = 3_600_000L; // 1 hour
+  private long maxAgeMilis = 30L*60L*1000L; // 30 minutes
   private Map<String, Locale> codeToLocale = new HashMap<>();
 
   private Map<Locale, String> existingLocales;
@@ -218,7 +218,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
-   * Reloads the translations for the given locales from Weblate.
+   * Updates the translations for the given locales from Weblate.
    * <p>
    * Only if the translations from Weblate could be loaded, the translation cache will be updated
    *
@@ -230,16 +230,16 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     if (locales != null && locales.length > 0) {
       for (Locale locale : locales) {
         logger.info(String.format("Reload translation for locale %s", locale));
-        translationsCache.get(locale).timestamp = 0L;
+        loadTranslations(locale, true);
       }
     }
   }
 
-  private Properties loadTranslations(Locale locale) {
+  private Properties loadTranslations(Locale locale, boolean reload) {
     CacheEntry cacheEntry = translationsCache.get(locale);
     long now = System.currentTimeMillis();
 
-    if (cacheEntry != null && cacheEntry.timestamp > now - maxAgeMilis) {
+    if (cacheEntry != null && !reload && cacheEntry.timestamp > now - maxAgeMilis) {
       return cacheEntry.properties;
     }
 
@@ -360,7 +360,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
   @Override
   protected String resolveCodeWithoutArguments(String code, Locale locale) {
-    Properties translations = loadTranslations(locale);
+    Properties translations = loadTranslations(locale, false);
     return translations.getProperty(code);
   }
 
@@ -368,7 +368,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   public Properties getAllProperties(Locale locale) {
     Properties allProperties = new Properties();
 
-    Properties translations = loadTranslations(locale);
+    Properties translations = loadTranslations(locale, false);
     translations.forEach(allProperties::putIfAbsent);
 
     MessageSource parentMessageSource = getParentMessageSource();

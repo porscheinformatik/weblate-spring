@@ -124,6 +124,18 @@ class WeblateMessageSourceTest {
   }
 
   @Test
+  void reloadLocale() {
+    mockGetLocales();
+    mockResponse(RESPONSE_OK);
+    mockResponse(RESPONSE_OK_CHANGED);
+
+    assertEquals(TEXT1, messageSource.getMessage("key1", null, Locale.ENGLISH));
+    messageSource.reload(Locale.ENGLISH);
+    assertEquals(TEXT1_CHANGED, messageSource.getMessage("key1", null, Locale.ENGLISH));
+    assertEquals(TEXT2, messageSource.getMessage("key2", null, Locale.ENGLISH));
+  }
+
+  @Test
   void paging() {
     mockGetLocales();
     mockResponse(RESPONSE_PAGING);
