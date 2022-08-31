@@ -243,17 +243,19 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       return cacheEntry.properties;
     }
 
+    Properties properties = cacheEntry != null ? cacheEntry.properties : new Properties();
     long oldTimestamp = cacheEntry != null ? cacheEntry.timestamp : 0L;
-    cacheEntry = new CacheEntry(loadTranslation(new Locale(locale.getLanguage()), oldTimestamp), now);
+
+    cacheEntry = new CacheEntry(properties, now);
+
+    loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
 
     if (StringUtils.hasText(locale.getCountry())) {
-      Properties countrySpecific = loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), oldTimestamp);
-      cacheEntry.properties.putAll(countrySpecific);
+      loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp);
     }
 
     if (StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript())) {
-      Properties variantSpecific = loadTranslation(locale, oldTimestamp);
-      cacheEntry.properties.putAll(variantSpecific);
+      loadTranslation(locale, cacheEntry.properties, oldTimestamp);
     }
 
     translationsCache.put(locale, cacheEntry);
@@ -261,20 +263,20 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     return cacheEntry.properties;
   }
 
-  private Properties loadTranslation(Locale language, long timestamp) {
-
+  private void loadTranslation(Locale language, Properties properties, long timestamp) {
     synchronized (existingLocalesLock) {
       if (existingLocales == null) {
         existingLocales = loadCodes();
       }
     }
 
-    return Optional.ofNullable(existingLocales.get(language))
-        .map(lang -> loadTranslation(lang, timestamp))
-        .orElseGet(() -> {
-          logger.info("No code registered for Locale " + language);
-          return new Properties();
-        });
+    String lang = existingLocales.get(language);
+    if (lang == null) {
+      logger.info("No code registered for Locale " + language);
+      return;
+    }
+
+    loadTranslation(lang, properties, timestamp);
   }
 
   private static String formatTimestampIso(long timestamp) {
@@ -284,9 +286,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     return df.format(new Date(timestamp));
   }
 
-  private Properties loadTranslation(String code, long timestamp) {
-
-    Properties properties = new Properties();
+  private void loadTranslation(String code, Properties properties, long timestamp) {
     String currentQuery = query + " AND changed:>=" + formatTimestampIso(timestamp);
 
     try {
@@ -325,8 +325,6 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     } catch (RestClientException | URISyntaxException e) {
       logger.warn("Could not load translations (code=" + code + ")", e);
     }
-
-    return properties;
   }
 
   private Map<Locale, String> loadCodes() {

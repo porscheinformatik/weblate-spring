@@ -24,9 +24,16 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class WeblateMessageSourceTest {
 
+  private static final String TEXT1 = "Hello, World!";
+  private static final String TEXT1_CHANGED = "Another one";
+  private static final String TEXT2 = "Wow this works";
+
   private static final String RESPONSE_OK = "{\"count\":2,\"next\":null,\"previous\":null,\"results\":["
-      + "{\"id\":1,\"context\":\"key1\",\"source\":[\"Hello, World!\"],\"target\":[\"Hello, World!\"]},"
-      + "{\"id\":2,\"context\":\"key2\",\"source\":[\"Wow this works\"],\"target\":[\"Wow this works\"]}"
+      + "{\"id\":1,\"context\":\"key1\",\"source\":[\"" + TEXT1 + "\"],\"target\":[\"" + TEXT1 + "\"]},"
+      + "{\"id\":2,\"context\":\"key2\",\"source\":[\"" + TEXT2 + "\"],\"target\":[\"" + TEXT2 + "\"]}"
+      + "]}";
+  private static final String RESPONSE_OK_CHANGED = "{\"count\":2,\"next\":null,\"previous\":null,\"results\":["
+      + "{\"id\":1,\"context\":\"key1\",\"source\":[\"" + TEXT1 + "\"],\"target\":[\"" + TEXT1_CHANGED + "\"]}"
       + "]}";
   private static final String RESPONSE_PAGING = "{\"count\":2,\"next\":\"http://localhost:8080/api/translations/test-project/test-comp/en/units/?page=1&q=state%3A%3E%3Dtranslated\",\"previous\":null,\"results\":[]}";
   private static final String RESPONSE_EMPTY = "{\"count\":0,\"next\":null,\"previous\":null,\"results\":[]}";
@@ -55,12 +62,10 @@ class WeblateMessageSourceTest {
 
   private void mockGetLocales() {
     mockServer.expect(ExpectedCount.once(),
-      requestTo("http://localhost:8080/api/projects/test-project/languages/")
-    ).andRespond(
-      withStatus(HttpStatus.OK)
-        .contentType(MediaType.APPLICATION_JSON)
-        .body("[{\"code\":\"en\"}]")
-    );
+        requestTo("http://localhost:8080/api/projects/test-project/languages/")).andRespond(
+            withStatus(HttpStatus.OK)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("[{\"code\":\"en\"}]"));
   }
 
   private void mockResponse(String body) {
@@ -86,11 +91,11 @@ class WeblateMessageSourceTest {
     mockResponse(RESPONSE_OK);
 
     String key1Value = messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH);
-    assertEquals("Hello, World!", key1Value);
+    assertEquals(TEXT1, key1Value);
     key1Value = messageSource.resolveCodeWithoutArguments("key1", Locale.US);
-    assertEquals("Hello, World!", key1Value);
+    assertEquals(TEXT1, key1Value);
     key1Value = messageSource.resolveCodeWithoutArguments("key1", Locale.US);
-    assertEquals("Hello, World!", key1Value);
+    assertEquals(TEXT1, key1Value);
   }
 
   @Test
@@ -109,13 +114,13 @@ class WeblateMessageSourceTest {
     mockGetLocales();
     mockResponse(RESPONSE_OK);
     mockGetLocales();
-    mockResponse(RESPONSE_OK.replace("Hello, World!", "Another one"));
+    mockResponse(RESPONSE_OK.replace(TEXT1, TEXT1_CHANGED));
 
     Properties allProperties = messageSource.getAllProperties(Locale.ENGLISH);
-    assertEquals("Hello, World!", allProperties.get("key1"));
+    assertEquals(TEXT1, allProperties.get("key1"));
     messageSource.clearCache();
     allProperties = messageSource.getAllProperties(Locale.ENGLISH);
-    assertEquals("Another one", allProperties.get("key1"));
+    assertEquals(TEXT1_CHANGED, allProperties.get("key1"));
   }
 
   @Test
@@ -124,23 +129,25 @@ class WeblateMessageSourceTest {
     mockResponse(RESPONSE_PAGING);
     mockResponse(RESPONSE_PAGING); // try a second paging call
     mockResponse(RESPONSE_OK);
-    
+
     Properties allProperties = messageSource.getAllProperties(Locale.ENGLISH);
-    assertEquals("Hello, World!", allProperties.get("key1"));
+    assertEquals(TEXT1, allProperties.get("key1"));
   }
 
   @Test
   void cacheTimeout() throws Exception {
     mockGetLocales();
     mockResponse(RESPONSE_OK);
-    mockResponse(RESPONSE_OK.replace("Hello, World!", "Another one"));
+    mockResponse(RESPONSE_OK_CHANGED);
 
-    assertEquals("Hello, World!", messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH));
-    assertEquals("Hello, World!", messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH));
-    
+    assertEquals(TEXT1, messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH));
+    assertEquals(TEXT1, messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH));
+    assertEquals(TEXT2, messageSource.resolveCodeWithoutArguments("key2", Locale.ENGLISH));
+
     messageSource.setMaxAgeMilis(1000);
     Thread.sleep(1001);
-    assertEquals("Another one", messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH));
+    assertEquals(TEXT1_CHANGED, messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH));
+    assertEquals(TEXT2, messageSource.resolveCodeWithoutArguments("key2", Locale.ENGLISH));
   }
 
 }
