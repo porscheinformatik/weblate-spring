@@ -1,5 +1,28 @@
 package at.porscheinformatik.weblate.spring;
 
+import static java.util.Collections.emptyMap;
+import static java.util.Collections.singletonList;
+
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.text.DateFormat;
+import java.text.MessageFormat;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Properties;
+import java.util.Set;
+import java.util.TimeZone;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 import org.springframework.context.MessageSource;
 import org.springframework.context.support.AbstractMessageSource;
 import org.springframework.core.ParameterizedTypeReference;
@@ -11,27 +34,17 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
-import java.io.IOException;
-import java.io.StringReader;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.nio.charset.StandardCharsets;
-import java.text.MessageFormat;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-
-import static java.util.Collections.emptyMap;
-import static java.util.Collections.singletonList;
-import static org.springframework.web.util.UriUtils.encode;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * {@link MessageSource} loading texts from Weblate translation server via REST API.
+ * {@link MessageSource} loading texts from Weblate translation server via REST
+ * API.
  *
  * <p>
- * If you use the {@link WeblateMessageSource} with a parent {@link org.springframework.context.support.ReloadableResourceBundleMessageSource}
- * and want to resolve all properties you can use the {@link AllPropertiesReloadableResourceBundleMessageSource}
+ * If you use the {@link WeblateMessageSource} with a parent
+ * {@link org.springframework.context.support.ReloadableResourceBundleMessageSource}
+ * and want to resolve all properties you can use the
+ * {@link AllPropertiesReloadableResourceBundleMessageSource}
  * instead.
  * </p>
  */
@@ -44,11 +57,13 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private String project;
   private String component;
   private String query = "state:>=translated";
+  private long maxAgeMilis = 3_600_000L; // 1 hour
   private Map<String, Locale> codeToLocale = new HashMap<>();
 
   private Map<Locale, String> existingLocales;
   private final Object existingLocalesLock = new Object();
-  private final Map<Locale, Properties> translationsCache = new ConcurrentHashMap<>();
+  private final Map<Locale, CacheEntry> translationsCache = new ConcurrentHashMap<>();
+
 
   /**
    * @return the Weblate base URL
@@ -116,6 +131,20 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     this.query = query;
   }
 
+  /** @return the max age for items in the cache (in milliseconds) */
+  public long getMaxAgeMilis() {
+      return maxAgeMilis;
+  }
+
+  /**
+   * Sets the max age for items in the cache (in milliseconds).
+   * 
+   * @param maxAgeMilis the max age for items in the cache (in milliseconds)
+   */
+  public void setMaxAgeMilis(long maxAgeMilis) {
+      this.maxAgeMilis = maxAgeMilis;
+  }
+
   /**
    * @return all existing locales of the configured weblate component
    */
@@ -168,7 +197,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
-   * Registers a manual mapping of w Weblate code to a {@link Locale}.
+   * Registers a manual mapping of a Weblate code to a {@link Locale}.
    *
    * @param code   the Weblate language code
    * @param locale a {@link Locale} with
@@ -201,85 +230,107 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     if (locales != null && locales.length > 0) {
       for (Locale locale : locales) {
         logger.info(String.format("Reload translation for locale %s", locale));
-        loadTranslations(locale, true);
+        translationsCache.get(locale).timestamp = 0L;
       }
     }
   }
 
-  private Properties loadTranslations(Locale locale, boolean forceReload) {
-    Properties translations = translationsCache.get(locale);
+  private Properties loadTranslations(Locale locale) {
+    CacheEntry cacheEntry = translationsCache.get(locale);
+    long now = System.currentTimeMillis();
 
-    if (translations != null && !forceReload) {
-      return translations;
+    if (cacheEntry != null && cacheEntry.timestamp > now - maxAgeMilis) {
+      return cacheEntry.properties;
     }
 
-    translations = loadTranslation(new Locale(locale.getLanguage()));
+    Properties properties = cacheEntry != null ? cacheEntry.properties : new Properties();
+    long oldTimestamp = cacheEntry != null ? cacheEntry.timestamp : 0L;
+
+    cacheEntry = new CacheEntry(properties, now);
+
+    loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
 
     if (StringUtils.hasText(locale.getCountry())) {
-      Properties countrySpecific = loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()));
-      translations.putAll(countrySpecific);
+      loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp);
     }
 
     if (StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript())) {
-      Properties variantSpecific = loadTranslation(locale);
-      translations.putAll(variantSpecific);
+      loadTranslation(locale, cacheEntry.properties, oldTimestamp);
     }
 
-    translationsCache.put(locale, translations);
+    translationsCache.put(locale, cacheEntry);
 
-    return translations;
+    return cacheEntry.properties;
   }
 
-  private Properties loadTranslation(Locale language) {
-
+  private void loadTranslation(Locale language, Properties properties, long timestamp) {
     synchronized (existingLocalesLock) {
       if (existingLocales == null) {
         existingLocales = loadCodes();
       }
     }
 
-    return Optional.ofNullable(existingLocales.get(language))
-      .map(this::loadTranslation)
-      .orElseGet(() -> {
-        logger.info("No code registered for Locale " + language);
-        return new Properties();
-      });
+    String lang = existingLocales.get(language);
+    if (lang == null) {
+      logger.info("No code registered for Locale " + language);
+      return;
+    }
+
+    loadTranslation(lang, properties, timestamp);
   }
 
-  private Properties loadTranslation(String code) {
+  private static String formatTimestampIso(long timestamp) {
+    TimeZone tz = TimeZone.getTimeZone("UTC");
+    DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm'Z'"); // Quoted "Z" to indicate UTC, no timezone offset
+    df.setTimeZone(tz);
+    return df.format(new Date(timestamp));
+  }
 
-    Properties properties = new Properties();
+  private void loadTranslation(String code, Properties properties, long timestamp) {
+    String currentQuery = query + " AND changed:>=" + formatTimestampIso(timestamp);
 
     try {
-      URI uri = new URI(baseUrl + "/api/translations/" + project + "/" + component + "/" + code + "/file/?q=" + encode(query, StandardCharsets.UTF_8));
-
-      RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.TEXT_PLAIN).build();
+      RequestEntity<Void> request = RequestEntity
+          .get(baseUrl + "/api/translations/{project}/{component}/{languageCode}/units/?q={query}",
+              project, component, code, currentQuery)
+          .accept(MediaType.APPLICATION_JSON)
+          .build();
 
       if (restTemplate == null) {
         restTemplate = createRestTemplate();
       }
 
-      ResponseEntity<String> response = restTemplate.exchange(request, String.class);
+      UnitsResponse responseBody;
+      while (true) {
+        ResponseEntity<UnitsResponse> response = restTemplate.exchange(request, UnitsResponse.class);
+        responseBody = response.getBody();
+        if (!response.getStatusCode().is2xxSuccessful() || responseBody == null) {
+          logger.warn(String.format("Got empty or non-200 response (status=%s, body=%s)", response.getStatusCode(),
+              response.getBody()));
+          break;
+        }
 
-      if (response.getStatusCode().is2xxSuccessful() && response.hasBody()) {
-        properties.load(new StringReader(response.getBody()));
-      } else {
-        logger.warn("Got empty or non-200 response (status=" + response.getStatusCode() + ",body=" + response.getBody() + ")");
+        for (Unit unit : responseBody.results) {
+          properties.put(unit.code, unit.target[0]);
+        }
+
+        if (responseBody.next == null) {
+          break;
+        }
+
+        request = RequestEntity.get(responseBody.next.toURI()).accept(MediaType.APPLICATION_JSON).build();
+
       }
-    } catch (RestClientException | IOException | URISyntaxException e) {
+
+    } catch (RestClientException | URISyntaxException e) {
       logger.warn("Could not load translations (code=" + code + ")", e);
     }
-
-    return properties;
   }
 
   private Map<Locale, String> loadCodes() {
     try {
-      URI uri = new URI(baseUrl
-        + "/api/projects/" + project
-        + "/languages/");
-
-      RequestEntity<Void> request = RequestEntity.get(uri).accept(MediaType.APPLICATION_JSON).build();
+      RequestEntity<Void> request = RequestEntity.get(baseUrl + "/api/projects/{project}/languages/", project)
+          .accept(MediaType.APPLICATION_JSON).build();
 
       if (restTemplate == null) {
         restTemplate = createRestTemplate();
@@ -291,11 +342,11 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       }
 
       return response.getBody().stream()
-        .map(this::extractCode)
-        .filter(Objects::nonNull)
-        .collect(Collectors.toMap(this::deriveLocaleFromCode, Function.identity()));
+          .map(this::extractCode)
+          .filter(Objects::nonNull)
+          .collect(Collectors.toMap(this::deriveLocaleFromCode, Function.identity()));
 
-    } catch (RestClientException | URISyntaxException e) {
+    } catch (RestClientException e) {
       logger.warn("Could not load languages", e);
     }
     return emptyMap();
@@ -309,7 +360,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
   @Override
   protected String resolveCodeWithoutArguments(String code, Locale locale) {
-    Properties translations = loadTranslations(locale, false);
+    Properties translations = loadTranslations(locale);
     return translations.getProperty(code);
   }
 
@@ -317,13 +368,13 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   public Properties getAllProperties(Locale locale) {
     Properties allProperties = new Properties();
 
-    Properties translations = loadTranslations(locale, false);
+    Properties translations = loadTranslations(locale);
     translations.forEach(allProperties::putIfAbsent);
 
     MessageSource parentMessageSource = getParentMessageSource();
     if (parentMessageSource instanceof AllPropertiesSource) {
       ((AllPropertiesSource) parentMessageSource).getAllProperties(locale)
-        .forEach(allProperties::putIfAbsent);
+          .forEach(allProperties::putIfAbsent);
     }
 
     return allProperties;
@@ -331,9 +382,9 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
   private String extractCode(Map<String, Object> entry) {
     return Optional.ofNullable(entry.get("code"))
-      .filter(String.class::isInstance)
-      .map(String.class::cast)
-      .orElse(null);
+        .filter(String.class::isInstance)
+        .map(String.class::cast)
+        .orElse(null);
   }
 
   private Locale deriveLocaleFromCode(String code) {
@@ -344,16 +395,15 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     final Locale locale = WeblateUtils.deriveLocaleFromCode(code);
     if (locale == null) {
       logger.warn(String.format("Could not derive a Locale for code[%s], " +
-        "consider adding it with weblateMessageSource.registerLocaleMapping", code));
+          "consider adding it with weblateMessageSource.registerLocaleMapping", code));
       return null;
     } else {
       String mappedCode = findCodeMapping(locale);
       if (mappedCode != null) {
         logger.warn(String.format("derived Locale[%s] from code[%s], but Locale was already registered for code[%s]",
-          locale, code, mappedCode));
-        return  null;
-      }
-      else {
+            locale, code, mappedCode));
+        return null;
+      } else {
         logger.debug(String.format("derived Locale[%s] from code[%s]", locale, code));
         return locale;
       }
@@ -373,5 +423,27 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     RestTemplate restTemplate = new RestTemplate();
     restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));
     return restTemplate;
+  }
+}
+
+class UnitsResponse {
+  public URL next;
+  public List<Unit> results;
+}
+
+class Unit {
+  @JsonProperty("context")
+  public String code;
+  public String[] source;
+  public String[] target;
+}
+
+class CacheEntry {
+  public final Properties properties;
+  public long timestamp;
+
+  public CacheEntry(Properties properties, long timestamp) {
+    this.properties = properties;
+    this.timestamp = timestamp;
   }
 }
