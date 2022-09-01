@@ -5,55 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2022-09-01
+
+### BREAKING CHANGES
+
+- Switch to units API from file API (#40). This fixes the issue that the GitLab API performs a commit when fetching data via the file API (#38).
+
+### Dependencies
+
+- Spring Boot 2.7.3
+
 ## [0.4.0] - 2022-03-30
 
-### Added
+### Features
 
 - Added support for Locale variants (#20)
 - Add public getter for field existingLocales in WeblateMessageSource (#32)
 
-### Changed
+### Dependencies
 
-- Dependency Updates:
-  - Spring Boot 2.6.5
+- Spring Boot 2.6.5
 
 ## [0.3.1] - 2021-11-29 
 
-### Fixed
+### Bug Fixes
 
 - NPE when no texts are translated (#15)
 
 ## [0.3.0] - 2021-11-26
 
-### Added
+### Features
 
 - Feat: add the possibility to filter contents with query (#14)
 
-### Changed
+### Dependencies
 
-- Dependency Updates:
-  - Spring Boot 2.5.7
+- Spring Boot 2.5.7
 
-### Fixed
+### Bug Fixes
 
 - Untranslated texts are not loaded as empty which enables a fallback to the default language.
 
 ## [0.2.1] - 2021-09-07
 
-### Fixed
+### Bug Fixes
 
 - Fix: add trailing slash to file download (is needed by Weblate API), #9
 
 ## [0.2.0] - 2021-08-04
 
-### Changed
+### Dependencies
 
-- Dependency Updates:
-  - Spring Boot 2.5.3
+- Spring Boot 2.5.3
 
 ## [0.1.0] - 2021-02-01
 
-### Added
+### Features
 
 - Basic implementation for Weblate Spring integration
 
