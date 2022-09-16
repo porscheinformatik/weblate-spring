@@ -287,7 +287,11 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   private void loadTranslation(String code, Properties properties, long timestamp) {
-    String currentQuery = query + " AND changed:>=" + formatTimestampIso(timestamp);
+    String currentQuery = query;
+    if (timestamp > 0L) {
+      String timestampStr = formatTimestampIso(timestamp);
+      currentQuery += " AND (added:>=" + timestampStr + " OR changed:>=" + timestampStr + ")";
+    }
 
     try {
       RequestEntity<Void> request = RequestEntity
