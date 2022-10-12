@@ -58,6 +58,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private String component;
   private String query = "state:>=translated";
   private long maxAgeMilis = 30L*60L*1000L; // 30 minutes
+  private long initialCacheTimestamp = 0;
   private Map<String, Locale> codeToLocale = new HashMap<>();
 
   private Map<Locale, String> existingLocales;
@@ -114,6 +115,25 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
+   * @return the initial cache timestamp
+   */
+  public long getInitialCacheTimestamp() {
+    return initialCacheTimestamp;
+  }
+
+  /**
+   * Set the timestamp that is used when no cache entry is set. Default is 0.
+   *
+   * This can be used when you have bundled translations that are provided via a parent message
+   * source. Only translations newer than this timestamp will ever be fetched from weblate.
+   *
+   * @param initialCacheTimestamp the initial cache timestamp
+   */
+  public void setInitialCacheTimestamp(long initialCacheTimestamp) {
+    this.initialCacheTimestamp = initialCacheTimestamp;
+  }
+
+  /**
    * @return the Weblate query
    */
   public String getQuery() {
@@ -138,7 +158,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
   /**
    * Sets the max age for items in the cache (in milliseconds).
-   * 
+   *
    * @param maxAgeMilis the max age for items in the cache (in milliseconds)
    */
   public void setMaxAgeMilis(long maxAgeMilis) {
@@ -244,7 +264,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     }
 
     Properties properties = cacheEntry != null ? cacheEntry.properties : new Properties();
-    long oldTimestamp = cacheEntry != null ? cacheEntry.timestamp : 0L;
+    long oldTimestamp = cacheEntry != null ? cacheEntry.timestamp : initialCacheTimestamp;
 
     cacheEntry = new CacheEntry(properties, now);
 
