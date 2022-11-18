@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
@@ -173,6 +174,19 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
+   * Reload the cached list of existing locales.
+   * <p>
+   * This does not clear the cached translations.
+   */
+  public void reloadExistingLocales() {
+    synchronized (existingLocalesLock) {
+      if (existingLocales == null) {
+        existingLocales = loadCodes();
+      }
+    }
+  }
+
+  /**
    * Set the {@link RestTemplate} to use for getting data from Weblate REST API.
    * <p>
    * Please configure the given parameter with UTF-8 as the standard message converter:
@@ -255,6 +269,21 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     }
   }
 
+  /**
+   * Remove cache entries that do not contain a translation.
+   * <p>
+   * This is useful e.g. when called after updating the existing locales. It ensures
+   * that newly found locales are available.
+   */
+  public void removeEmptyCacheEntries() {
+    List<Locale> keys = translationsCache.entrySet().stream()
+      .filter(e -> e.getValue().properties.isEmpty())
+      .map(Entry::getKey)
+      .collect(Collectors.toList());
+
+    keys.forEach(translationsCache::remove);
+  }
+
   private Properties loadTranslations(Locale locale, boolean reload) {
     CacheEntry cacheEntry = translationsCache.get(locale);
     long now = System.currentTimeMillis();
@@ -280,6 +309,10 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
     translationsCache.put(locale, cacheEntry);
 
+    if (cacheEntry.properties.isEmpty()) {
+      logger.info("No translations available for locale " + locale);
+    }
+
     return cacheEntry.properties;
   }
 
@@ -291,12 +324,9 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     }
 
     String lang = existingLocales.get(language);
-    if (lang == null) {
-      logger.info("No code registered for Locale " + language);
-      return;
+    if (lang != null) {
+      loadTranslation(lang, properties, timestamp);
     }
-
-    loadTranslation(lang, properties, timestamp);
   }
 
   private static String formatTimestampIso(long timestamp) {
@@ -366,6 +396,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       }
 
       return response.getBody().stream()
+          .filter(this::containsTranslations)
           .map(this::extractCode)
           .filter(Objects::nonNull)
           .collect(Collectors.toMap(this::deriveLocaleFromCode, Function.identity()));
@@ -402,6 +433,14 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     }
 
     return allProperties;
+  }
+
+  private boolean containsTranslations(Map<String, Object> entry) {
+    return Optional.ofNullable(entry.get("translated"))
+      .filter(Integer.class::isInstance)
+      .map(Integer.class::cast)
+      .filter(v -> v > 0)
+      .isPresent();
   }
 
   private String extractCode(Map<String, Object> entry) {

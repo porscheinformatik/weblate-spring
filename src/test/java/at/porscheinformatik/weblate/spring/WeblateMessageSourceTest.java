@@ -1,5 +1,17 @@
 package at.porscheinformatik.weblate.spring;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
+
+import java.net.URISyntaxException;
+import java.util.Locale;
+import java.util.Properties;
+
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,16 +23,6 @@ import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.response.DefaultResponseCreator;
 import org.springframework.web.client.RestTemplate;
-
-import java.net.URISyntaxException;
-import java.util.Locale;
-import java.util.Properties;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 class WeblateMessageSourceTest {
 
@@ -65,7 +67,7 @@ class WeblateMessageSourceTest {
         requestTo("http://localhost:8080/api/projects/test-project/languages/")).andRespond(
             withStatus(HttpStatus.OK)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body("[{\"code\":\"en\"}]"));
+                .body("[{\"code\":\"en\", \"translated\":1},{\"code\":\"de\"}]"));
   }
 
   private void mockResponse(String body) {
@@ -82,6 +84,14 @@ class WeblateMessageSourceTest {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+  }
+
+  @Test
+  void reloadExistingLocales() {
+    mockGetLocales();
+    messageSource.reloadExistingLocales();
+    assertTrue(messageSource.getExistingLocales().contains(Locale.ENGLISH));
+    assertFalse(messageSource.getExistingLocales().contains(Locale.GERMAN));
   }
 
   @Test
