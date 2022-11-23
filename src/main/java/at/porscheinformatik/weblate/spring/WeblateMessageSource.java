@@ -124,7 +124,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
   /**
    * Set the timestamp that is used when no cache entry is set. Default is 0.
-   *
+   * <p>
    * This can be used when you have bundled translations that are provided via a parent message
    * source. Only translations newer than this timestamp will ever be fetched from weblate.
    *
@@ -436,11 +436,8 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   private boolean containsTranslations(Map<String, Object> entry) {
-    return Optional.ofNullable(entry.get("translated"))
-      .filter(Integer.class::isInstance)
-      .map(Integer.class::cast)
-      .filter(v -> v > 0)
-      .isPresent();
+    Object translatedCount = entry.get("translated");
+    return translatedCount instanceof Integer && ((Integer) translatedCount) > 0;
   }
 
   private String extractCode(Map<String, Object> entry) {
@@ -497,7 +494,6 @@ class UnitsResponse {
 class Unit {
   @JsonProperty("context")
   public String code;
-  public String[] source;
   public String[] target;
 }
 
