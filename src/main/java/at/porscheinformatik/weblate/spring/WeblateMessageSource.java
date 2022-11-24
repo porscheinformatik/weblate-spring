@@ -297,26 +297,34 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
     cacheEntry = new CacheEntry(properties, now);
 
-    loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
+    boolean exist = loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
 
     if (StringUtils.hasText(locale.getCountry())) {
-      loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp);
+      exist |= loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp);
     }
 
     if (StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript())) {
-      loadTranslation(locale, cacheEntry.properties, oldTimestamp);
+      exist |= loadTranslation(locale, cacheEntry.properties, oldTimestamp);
     }
 
     translationsCache.put(locale, cacheEntry);
 
-    if (cacheEntry.properties.isEmpty()) {
+    if (!exist) {
       logger.info("No translations available for locale " + locale);
     }
 
     return cacheEntry.properties;
   }
 
-  private void loadTranslation(Locale language, Properties properties, long timestamp) {
+  /**
+   * Load translations for a locale into the properties.
+   *
+   * @param language the locale to load the translations for
+   * @param properties where the translations are added
+   * @param timestamp where only translations newer than this timestamp are loaded (optional)
+   * @return true if translations exist in weblate, false if not (regardless of the timestamp)
+   */
+  private boolean loadTranslation(Locale language, Properties properties, long timestamp) {
     synchronized (existingLocalesLock) {
       if (existingLocales == null) {
         existingLocales = loadCodes();
@@ -326,7 +334,9 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     String lang = existingLocales.get(language);
     if (lang != null) {
       loadTranslation(lang, properties, timestamp);
+      return true;
     }
+    return false;
   }
 
   private static String formatTimestampIso(long timestamp) {
