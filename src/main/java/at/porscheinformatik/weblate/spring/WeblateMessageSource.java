@@ -297,14 +297,14 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
     cacheEntry = new CacheEntry(properties, now);
 
-    boolean exist = loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
+    boolean exist = loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp, reload);
 
     if (StringUtils.hasText(locale.getCountry())) {
-      exist |= loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp);
+      exist |= loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp, reload);
     }
 
     if (StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript())) {
-      exist |= loadTranslation(locale, cacheEntry.properties, oldTimestamp);
+      exist |= loadTranslation(locale, cacheEntry.properties, oldTimestamp, reload);
     }
 
     translationsCache.put(locale, cacheEntry);
@@ -319,24 +319,32 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   /**
    * Load translations for a locale into the properties.
    *
-   * @param language the locale to load the translations for
+   * @param locale the locale to load the translations for
    * @param properties where the translations are added
    * @param timestamp where only translations newer than this timestamp are loaded (optional)
+   * @param reload if true then do not use cached translations
    * @return true if translations exist in weblate, false if not (regardless of the timestamp)
    */
-  private boolean loadTranslation(Locale language, Properties properties, long timestamp) {
+  private boolean loadTranslation(Locale locale, Properties properties, long timestamp, boolean reload) {
     synchronized (existingLocalesLock) {
       if (existingLocales == null) {
         existingLocales = loadCodes();
       }
     }
 
-    String lang = existingLocales.get(language);
-    if (lang != null) {
-      loadTranslation(lang, properties, timestamp);
+    String lang = existingLocales.get(locale);
+    if (lang == null) {
+      return false;
+    }
+
+    CacheEntry cacheEntry = translationsCache.get(locale);
+    if (cacheEntry != null && !reload && cacheEntry.timestamp > System.currentTimeMillis() - maxAgeMilis) {
+      cacheEntry.properties.forEach(properties::putIfAbsent);
       return true;
     }
-    return false;
+
+    loadTranslation(lang, properties, timestamp);
+    return true;
   }
 
   private static String formatTimestampIso(long timestamp) {
