@@ -98,7 +98,6 @@ class WeblateMessageSourceTest {
   void simpleCase() {
     mockGetLocales();
     mockResponse(RESPONSE_OK);
-    mockResponse(RESPONSE_OK);
 
     String key1Value = messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH);
     assertEquals(TEXT1, key1Value);
