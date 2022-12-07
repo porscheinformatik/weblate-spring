@@ -261,7 +261,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   public void reload(Locale... locales) {
     logger.info("Going to reload the translations ...");
 
-    if (locales != null && locales.length > 0) {
+    if (locales != null) {
       for (Locale locale : locales) {
         logger.info(String.format("Reload translation for locale %s", locale));
         loadTranslations(locale, true);
@@ -512,7 +512,7 @@ class Unit {
 
 class CacheEntry {
   public final Properties properties;
-  public long timestamp;
+  public final long timestamp;
 
   public CacheEntry(Properties properties, long timestamp) {
     this.properties = properties;
