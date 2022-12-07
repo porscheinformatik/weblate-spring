@@ -62,6 +62,6 @@ customization of the HTTP calls you can set your own `RestTemplate`.
 ## Caching
 
 `WeblateMessageSource` caches loaded translations 30 minutes (this can be changed by setting `maxAgeMilis`).
-If you want to update one locale immediatly call `WeblateMessageSource#reload(Locale)`. 
+If you want to update one locale immediately call `WeblateMessageSource#reload(Locale)`. 
 
 If you want to fully clear the cache call `WeblateMessageSource#clearCache` - this will also reload the languages. **Please use this with caution as it add heavy load to the Weblate API!**

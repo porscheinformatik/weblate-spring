@@ -8,7 +8,6 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
-import java.net.URISyntaxException;
 import java.util.Locale;
 import java.util.Properties;
 
@@ -40,7 +39,7 @@ class WeblateMessageSourceTest {
   private static final String RESPONSE_PAGING = "{\"count\":2,\"next\":\"http://localhost:8080/api/translations/test-project/test-comp/en/units/?page=1&q=state%3A%3E%3Dtranslated\",\"previous\":null,\"results\":[]}";
   private static final String RESPONSE_EMPTY = "{\"count\":0,\"next\":null,\"previous\":null,\"results\":[]}";
 
-  private RestTemplate restTemplate = new RestTemplate();
+  private final RestTemplate restTemplate = new RestTemplate();
 
   private WeblateMessageSource messageSource;
 
@@ -108,7 +107,7 @@ class WeblateMessageSourceTest {
   }
 
   @Test
-  void emptyResponse() throws URISyntaxException {
+  void emptyResponse() {
     mockGetLocales();
     mockResponse(RESPONSE_EMPTY);
 
