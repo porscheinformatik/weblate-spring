@@ -297,19 +297,25 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
     cacheEntry = new CacheEntry(properties, now);
 
-    boolean exist = loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
+    Locale languageOnly = new Locale(locale.getLanguage());
+    CacheEntry languageCacheEntry = translationsCache.get(languageOnly);
+    if (languageCacheEntry != null && !reload && languageCacheEntry.timestamp > now - maxAgeMilis) {
+      cacheEntry.properties.putAll(languageCacheEntry.properties);
+    } else {
+      loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
+    }
 
     if (StringUtils.hasText(locale.getCountry())) {
-      exist |= loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp);
+      loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp);
     }
 
     if (StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript())) {
-      exist |= loadTranslation(locale, cacheEntry.properties, oldTimestamp);
+      loadTranslation(locale, cacheEntry.properties, oldTimestamp);
     }
 
     translationsCache.put(locale, cacheEntry);
 
-    if (!exist) {
+    if (cacheEntry.properties.size() == 0) {
       logger.info("No translations available for locale " + locale);
     }
 
@@ -322,9 +328,8 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    * @param language the locale to load the translations for
    * @param properties where the translations are added
    * @param timestamp where only translations newer than this timestamp are loaded (optional)
-   * @return true if translations exist in weblate, false if not (regardless of the timestamp)
    */
-  private boolean loadTranslation(Locale language, Properties properties, long timestamp) {
+  private void loadTranslation(Locale language, Properties properties, long timestamp) {
     synchronized (existingLocalesLock) {
       if (existingLocales == null) {
         existingLocales = loadCodes();
@@ -334,9 +339,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     String lang = existingLocales.get(language);
     if (lang != null) {
       loadTranslation(lang, properties, timestamp);
-      return true;
     }
-    return false;
   }
 
   private static String formatTimestampIso(long timestamp) {
