@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -15,6 +16,8 @@ import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+import org.springframework.context.MessageSource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -168,6 +171,25 @@ class WeblateMessageSourceTest {
     Thread.sleep(1001);
     assertEquals(TEXT1_CHANGED, messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH));
     assertEquals(TEXT2, messageSource.resolveCodeWithoutArguments("key2", Locale.ENGLISH));
+  }
+
+  @Test
+  void asyncLoading() throws Exception {
+    messageSource.setAsync(true);
+    MessageSource parentMessageSource = Mockito.mock(MessageSource.class);
+    messageSource.setParentMessageSource(parentMessageSource);
+    when(parentMessageSource.getMessage("key1", null, null, Locale.ENGLISH)).thenReturn("Before async finished");
+
+    mockGetLocales();
+    mockResponse(RESPONSE_OK);
+
+    String key1Value = messageSource.getMessage("key1", null, Locale.ENGLISH);
+    assertEquals("Before async finished", key1Value);
+    
+    Thread.sleep(500);
+
+    key1Value = messageSource.getMessage("key1", null, Locale.ENGLISH);
+    assertEquals(TEXT1, key1Value);
   }
 
 }

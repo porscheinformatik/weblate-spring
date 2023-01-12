@@ -1,6 +1,5 @@
 package at.porscheinformatik.weblate.spring;
 
-import static java.util.Collections.emptyMap;
 import static java.util.Collections.singletonList;
 
 import java.net.URISyntaxException;
@@ -20,7 +19,10 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TimeZone;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -58,14 +60,15 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private String project;
   private String component;
   private String query = "state:>=translated";
-  private long maxAgeMilis = 30L*60L*1000L; // 30 minutes
+  private long maxAgeMilis = 30L * 60L * 1000L; // 30 minutes
   private long initialCacheTimestamp = 0;
+  private boolean async = false;
   private Map<String, Locale> codeToLocale = new HashMap<>();
 
   private Map<Locale, String> existingLocales;
-  private final Object existingLocalesLock = new Object();
   private final Map<Locale, CacheEntry> translationsCache = new ConcurrentHashMap<>();
-
+  private final ExecutorService executor = Executors
+      .newSingleThreadExecutor(r -> new Thread(r, "WeblateMessageSource"));
 
   /**
    * @return the Weblate base URL
@@ -116,25 +119,6 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
-   * @return the initial cache timestamp
-   */
-  public long getInitialCacheTimestamp() {
-    return initialCacheTimestamp;
-  }
-
-  /**
-   * Set the timestamp that is used when no cache entry is set. Default is 0.
-   * <p>
-   * This can be used when you have bundled translations that are provided via a parent message
-   * source. Only translations newer than this timestamp will ever be fetched from weblate.
-   *
-   * @param initialCacheTimestamp the initial cache timestamp
-   */
-  public void setInitialCacheTimestamp(long initialCacheTimestamp) {
-    this.initialCacheTimestamp = initialCacheTimestamp;
-  }
-
-  /**
    * @return the Weblate query
    */
   public String getQuery() {
@@ -142,9 +126,12 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
-   * Set the Weblate query for extracting the texts. Default is "state:&gt;=translated"
+   * Set the Weblate query for extracting the texts. Default is
+   * "state:&gt;=translated"
    * <p>
-   * See also: <a href="https://docs.weblate.org/en/latest/user/search.html">Weblate Search</a>.
+   * See also:
+   * <a href="https://docs.weblate.org/en/latest/user/search.html">Weblate
+   * Search</a>.
    *
    * @param query the Weblate query
    */
@@ -154,7 +141,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
   /** @return the max age for items in the cache (in milliseconds) */
   public long getMaxAgeMilis() {
-      return maxAgeMilis;
+    return maxAgeMilis;
   }
 
   /**
@@ -163,7 +150,44 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    * @param maxAgeMilis the max age for items in the cache (in milliseconds)
    */
   public void setMaxAgeMilis(long maxAgeMilis) {
-      this.maxAgeMilis = maxAgeMilis;
+    this.maxAgeMilis = maxAgeMilis;
+  }
+
+  /**
+   * @return the initial cache timestamp
+   */
+  public long getInitialCacheTimestamp() {
+    return initialCacheTimestamp;
+  }
+
+  /**
+   * Set the timestamp that is used when no cache entry is set. Default is 0.
+   * <p>
+   * This can be used when you have bundled translations that are provided via a
+   * parent message
+   * source. Only translations newer than this timestamp will ever be fetched from
+   * weblate.
+   *
+   * @param initialCacheTimestamp the initial cache timestamp
+   */
+  public void setInitialCacheTimestamp(long initialCacheTimestamp) {
+    this.initialCacheTimestamp = initialCacheTimestamp;
+  }
+
+  /**
+   * @return if async enabled
+   */
+  public boolean isAsync() {
+      return async;
+  }
+
+  /**
+   * Use async loading - all operations will be performed in a single threaded {@link ExecutorService}.
+   * 
+   * @param async if true loading will be performed asynchronously
+   */
+  public void setAsync(boolean async) {
+      this.async = async;
   }
 
   /**
@@ -179,18 +203,21 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    * This does not clear the cached translations.
    */
   public void reloadExistingLocales() {
-    synchronized (existingLocalesLock) {
-      if (existingLocales == null) {
-        existingLocales = loadCodes();
-      }
+    CompletableFuture<Void> loadTask = CompletableFuture.runAsync(() -> loadCodes(), executor);
+    if (!async) {
+      loadTask.join();
     }
   }
 
   /**
    * Set the {@link RestTemplate} to use for getting data from Weblate REST API.
    * <p>
-   * Please configure the given parameter with UTF-8 as the standard message converter:
-   * <pre><code>restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));</code></pre>
+   * Please configure the given parameter with UTF-8 as the standard message
+   * converter:
+   * 
+   * <pre>
+   * <code>restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));</code>
+   * </pre>
    *
    * @param restTemplate the {@link RestTemplate}
    */
@@ -202,7 +229,8 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
-   * Sets {@link WeblateAuthenticationInterceptor} for calling the REST API. <b>Be aware</b>: this
+   * Sets {@link WeblateAuthenticationInterceptor} for calling the REST API. <b>Be
+   * aware</b>: this
    * replaces all interceptors in the {@link RestTemplate}.
    *
    * @param authToken Weblate API token
@@ -245,16 +273,15 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    */
   public void clearCache() {
     logger.info("Going to clear cache...");
-    synchronized (existingLocalesLock) {
-      existingLocales = null;
-    }
+    existingLocales = null;
     translationsCache.clear();
   }
 
   /**
    * Updates the translations for the given locales from Weblate.
    * <p>
-   * Only if the translations from Weblate could be loaded, the translation cache will be updated
+   * Only if the translations from Weblate could be loaded, the translation cache
+   * will be updated
    *
    * @param locales the locales that should be reloaded
    */
@@ -272,14 +299,15 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   /**
    * Remove cache entries that do not contain a translation.
    * <p>
-   * This is useful e.g. when called after updating the existing locales. It ensures
+   * This is useful e.g. when called after updating the existing locales. It
+   * ensures
    * that newly found locales are available.
    */
   public void removeEmptyCacheEntries() {
     List<Locale> keys = translationsCache.entrySet().stream()
-      .filter(e -> e.getValue().properties.isEmpty())
-      .map(Entry::getKey)
-      .collect(Collectors.toList());
+        .filter(e -> e.getValue().properties.isEmpty())
+        .map(Entry::getKey)
+        .collect(Collectors.toList());
 
     keys.forEach(translationsCache::remove);
   }
@@ -325,20 +353,24 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   /**
    * Load translations for a locale into the properties.
    *
-   * @param language the locale to load the translations for
+   * @param language   the locale to load the translations for
    * @param properties where the translations are added
-   * @param timestamp where only translations newer than this timestamp are loaded (optional)
+   * @param timestamp  where only translations newer than this timestamp are
+   *                   loaded (optional)
    */
   private void loadTranslation(Locale language, Properties properties, long timestamp) {
-    synchronized (existingLocalesLock) {
-      if (existingLocales == null) {
-        existingLocales = loadCodes();
-      }
-    }
+    CompletableFuture<Map<Locale, String>> loadCodesTask = CompletableFuture.supplyAsync(() -> loadCodes());
 
-    String lang = existingLocales.get(language);
-    if (lang != null) {
-      loadTranslation(lang, properties, timestamp);
+    CompletableFuture<Void> loadTask = loadCodesTask.thenCompose(locales -> {
+      String lang = existingLocales.get(language);
+      if (lang != null) {
+        return loadTranslation(lang, properties, timestamp);
+      }
+      return CompletableFuture.completedStage(null);
+    });
+
+    if (!async) {
+      loadTask.join();
     }
   }
 
@@ -349,52 +381,56 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     return df.format(new Date(timestamp));
   }
 
-  private void loadTranslation(String code, Properties properties, long timestamp) {
-    String currentQuery = query;
-    if (timestamp > 0L) {
-      String timestampStr = formatTimestampIso(timestamp);
-      currentQuery += " AND (added:>=" + timestampStr + " OR changed:>=" + timestampStr + ")";
-    }
-
-    try {
-      RequestEntity<Void> request = RequestEntity
-          .get(baseUrl + "/api/translations/{project}/{component}/{languageCode}/units/?q={query}",
-              project, component, code, currentQuery)
-          .accept(MediaType.APPLICATION_JSON)
-          .build();
-
-      if (restTemplate == null) {
-        restTemplate = createRestTemplate();
+  private CompletableFuture<Void> loadTranslation(String code, Properties properties, long timestamp) {
+    return CompletableFuture.runAsync(() -> {
+      String currentQuery = query;
+      if (timestamp > 0L) {
+        String timestampStr = formatTimestampIso(timestamp);
+        currentQuery += " AND (added:>=" + timestampStr + " OR changed:>=" + timestampStr + ")";
       }
 
-      UnitsResponse responseBody;
-      while (true) {
-        ResponseEntity<UnitsResponse> response = restTemplate.exchange(request, UnitsResponse.class);
-        responseBody = response.getBody();
-        if (!response.getStatusCode().is2xxSuccessful() || responseBody == null) {
-          logger.warn(String.format("Got empty or non-200 response (status=%s, body=%s)", response.getStatusCode(),
-              response.getBody()));
-          break;
+      try {
+        RequestEntity<Void> request = RequestEntity
+            .get(baseUrl + "/api/translations/{project}/{component}/{languageCode}/units/?q={query}",
+                project, component, code, currentQuery)
+            .accept(MediaType.APPLICATION_JSON)
+            .build();
+
+        if (restTemplate == null) {
+          restTemplate = createRestTemplate();
         }
 
-        for (Unit unit : responseBody.results) {
-          properties.put(unit.code, unit.target[0]);
+        UnitsResponse responseBody;
+        while (true) {
+          ResponseEntity<UnitsResponse> response = restTemplate.exchange(request, UnitsResponse.class);
+          responseBody = response.getBody();
+          if (!response.getStatusCode().is2xxSuccessful() || responseBody == null) {
+            logger.warn(String.format("Got empty or non-200 response (status=%s, body=%s)", response.getStatusCode(),
+                response.getBody()));
+            break;
+          }
+
+          for (Unit unit : responseBody.results) {
+            properties.put(unit.code, unit.target[0]);
+          }
+
+          if (responseBody.next == null) {
+            break;
+          }
+
+          request = RequestEntity.get(responseBody.next.toURI()).accept(MediaType.APPLICATION_JSON).build();
         }
-
-        if (responseBody.next == null) {
-          break;
-        }
-
-        request = RequestEntity.get(responseBody.next.toURI()).accept(MediaType.APPLICATION_JSON).build();
-
+      } catch (RestClientException | URISyntaxException e) {
+        logger.warn("Could not load translations (code=" + code + ")", e);
       }
-
-    } catch (RestClientException | URISyntaxException e) {
-      logger.warn("Could not load translations (code=" + code + ")", e);
-    }
+    }, executor);
   }
 
   private Map<Locale, String> loadCodes() {
+    if (existingLocales != null) {
+      return existingLocales;
+    }
+
     try {
       RequestEntity<Void> request = RequestEntity.get(baseUrl + "/api/projects/{project}/languages/", project)
           .accept(MediaType.APPLICATION_JSON).build();
@@ -404,20 +440,18 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       }
 
       ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(request, LIST_MAP_STRING_OBJECT);
-      if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
-        return emptyMap();
+      List<Map<String, Object>> body = response.getBody();
+      if (response.getStatusCode().is2xxSuccessful() && body != null) {
+        existingLocales = body.stream()
+            .filter(this::containsTranslations)
+            .map(this::extractCode)
+            .filter(Objects::nonNull)
+            .collect(Collectors.toMap(this::deriveLocaleFromCode, Function.identity()));
       }
-
-      return response.getBody().stream()
-          .filter(this::containsTranslations)
-          .map(this::extractCode)
-          .filter(Objects::nonNull)
-          .collect(Collectors.toMap(this::deriveLocaleFromCode, Function.identity()));
-
     } catch (RestClientException e) {
       logger.warn("Could not load languages", e);
     }
-    return emptyMap();
+    return existingLocales;
   }
 
   @Override
