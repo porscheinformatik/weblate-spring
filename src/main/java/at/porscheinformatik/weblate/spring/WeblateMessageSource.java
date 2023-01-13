@@ -1,5 +1,6 @@
 package at.porscheinformatik.weblate.spring;
 
+import static java.util.Collections.emptySet;
 import static java.util.Collections.singletonList;
 
 import java.net.URISyntaxException;
@@ -34,7 +35,6 @@ import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.util.StringUtils;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -178,23 +178,24 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    * @return if async enabled
    */
   public boolean isAsync() {
-      return async;
+    return async;
   }
 
   /**
-   * Use async loading - all operations will be performed in a single threaded {@link ExecutorService}.
+   * Use async loading - all operations will be performed in a single threaded
+   * {@link ExecutorService}.
    * 
    * @param async if true loading will be performed asynchronously
    */
   public void setAsync(boolean async) {
-      this.async = async;
+    this.async = async;
   }
 
   /**
    * @return all existing locales of the configured weblate component
    */
   public Set<Locale> getExistingLocales() {
-    return this.existingLocales.keySet();
+    return this.existingLocales == null ? emptySet() : this.existingLocales.keySet();
   }
 
   /**
@@ -203,7 +204,14 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    * This does not clear the cached translations.
    */
   public void reloadExistingLocales() {
-    CompletableFuture<Void> loadTask = CompletableFuture.runAsync(() -> loadCodes(), executor);
+    CompletableFuture<Void> loadTask = CompletableFuture
+        .runAsync(this::loadCodes, executor)
+        .handle((val, e) -> {
+          if (e != null) {
+            logger.warn("Error reloading locales", e);
+          }
+          return val;
+        });
     if (!async) {
       loadTask.join();
     }
@@ -359,14 +367,19 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    *                   loaded (optional)
    */
   private void loadTranslation(Locale language, Properties properties, long timestamp) {
-    CompletableFuture<Map<Locale, String>> loadCodesTask = CompletableFuture.supplyAsync(() -> loadCodes());
+    CompletableFuture<Map<Locale, String>> loadCodesTask = CompletableFuture.supplyAsync(this::loadCodes);
 
     CompletableFuture<Void> loadTask = loadCodesTask.thenCompose(locales -> {
       String lang = existingLocales.get(language);
       if (lang != null) {
-        return loadTranslation(lang, properties, timestamp);
+        return CompletableFuture.runAsync(() -> loadTranslation(lang, properties, timestamp), executor);
       }
       return CompletableFuture.completedStage(null);
+    }).handle((val, e) -> {
+      if (e != null) {
+        logger.warn("Error loading translation for locale " + language, e);
+      }
+      return val;
     });
 
     if (!async) {
@@ -381,49 +394,46 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     return df.format(new Date(timestamp));
   }
 
-  private CompletableFuture<Void> loadTranslation(String code, Properties properties, long timestamp) {
-    return CompletableFuture.runAsync(() -> {
-      String currentQuery = query;
-      if (timestamp > 0L) {
-        String timestampStr = formatTimestampIso(timestamp);
-        currentQuery += " AND (added:>=" + timestampStr + " OR changed:>=" + timestampStr + ")";
+  private void loadTranslation(String code, Properties properties, long timestamp) {
+    String currentQuery = query;
+    if (timestamp > 0L) {
+      String timestampStr = formatTimestampIso(timestamp);
+      currentQuery += " AND (added:>=" + timestampStr + " OR changed:>=" + timestampStr + ")";
+    }
+    RequestEntity<Void> request = RequestEntity
+        .get(baseUrl + "/api/translations/{project}/{component}/{languageCode}/units/?q={query}",
+            project, component, code, currentQuery)
+        .accept(MediaType.APPLICATION_JSON)
+        .build();
+
+    if (restTemplate == null) {
+      restTemplate = createRestTemplate();
+    }
+
+    UnitsResponse body;
+    while (true) {
+      ResponseEntity<UnitsResponse> response = restTemplate.exchange(request, UnitsResponse.class);
+      body = response.getBody();
+      if (response.getStatusCodeValue() < 200 || response.getStatusCodeValue() >= 300 || body == null) {
+        logger.warn(String.format("Got empty or non-200 response (status=%s, body=%s)", response.getStatusCode(),
+            response.getBody()));
+        break;
+      }
+
+      for (Unit unit : body.results) {
+        properties.put(unit.code, unit.target[0]);
+      }
+
+      if (body.next == null) {
+        break;
       }
 
       try {
-        RequestEntity<Void> request = RequestEntity
-            .get(baseUrl + "/api/translations/{project}/{component}/{languageCode}/units/?q={query}",
-                project, component, code, currentQuery)
-            .accept(MediaType.APPLICATION_JSON)
-            .build();
-
-        if (restTemplate == null) {
-          restTemplate = createRestTemplate();
-        }
-
-        UnitsResponse responseBody;
-        while (true) {
-          ResponseEntity<UnitsResponse> response = restTemplate.exchange(request, UnitsResponse.class);
-          responseBody = response.getBody();
-          if (!response.getStatusCode().is2xxSuccessful() || responseBody == null) {
-            logger.warn(String.format("Got empty or non-200 response (status=%s, body=%s)", response.getStatusCode(),
-                response.getBody()));
-            break;
-          }
-
-          for (Unit unit : responseBody.results) {
-            properties.put(unit.code, unit.target[0]);
-          }
-
-          if (responseBody.next == null) {
-            break;
-          }
-
-          request = RequestEntity.get(responseBody.next.toURI()).accept(MediaType.APPLICATION_JSON).build();
-        }
-      } catch (RestClientException | URISyntaxException e) {
-        logger.warn("Could not load translations (code=" + code + ")", e);
+        request = RequestEntity.get(body.next.toURI()).accept(MediaType.APPLICATION_JSON).build();
+      } catch (URISyntaxException e) {
+        throw new RuntimeException(e);
       }
-    }, executor);
+    }
   }
 
   private Map<Locale, String> loadCodes() {
@@ -431,26 +441,23 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       return existingLocales;
     }
 
-    try {
-      RequestEntity<Void> request = RequestEntity.get(baseUrl + "/api/projects/{project}/languages/", project)
-          .accept(MediaType.APPLICATION_JSON).build();
+    RequestEntity<Void> request = RequestEntity.get(baseUrl + "/api/projects/{project}/languages/", project)
+        .accept(MediaType.APPLICATION_JSON).build();
 
-      if (restTemplate == null) {
-        restTemplate = createRestTemplate();
-      }
-
-      ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(request, LIST_MAP_STRING_OBJECT);
-      List<Map<String, Object>> body = response.getBody();
-      if (response.getStatusCode().is2xxSuccessful() && body != null) {
-        existingLocales = body.stream()
-            .filter(this::containsTranslations)
-            .map(this::extractCode)
-            .filter(Objects::nonNull)
-            .collect(Collectors.toMap(this::deriveLocaleFromCode, Function.identity()));
-      }
-    } catch (RestClientException e) {
-      logger.warn("Could not load languages", e);
+    if (restTemplate == null) {
+      restTemplate = createRestTemplate();
     }
+
+    ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(request, LIST_MAP_STRING_OBJECT);
+    List<Map<String, Object>> body = response.getBody();
+    if (response.getStatusCodeValue() >= 200 && response.getStatusCodeValue() < 300 && body != null) {
+      existingLocales = body.stream()
+          .filter(this::containsTranslations)
+          .map(this::extractCode)
+          .filter(Objects::nonNull)
+          .collect(Collectors.toMap(this::deriveLocaleFromCode, Function.identity()));
+    }
+
     return existingLocales;
   }
 

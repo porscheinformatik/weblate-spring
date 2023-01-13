@@ -3,6 +3,7 @@ package at.porscheinformatik.weblate.spring;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.context.MessageSource;
+import org.springframework.context.NoSuchMessageException;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -65,17 +67,25 @@ class WeblateMessageSourceTest {
   }
 
   private void mockGetLocales() {
+    mockGetLocales(HttpStatus.OK);
+  }
+
+  private void mockGetLocales(HttpStatus status) {
     mockServer.expect(ExpectedCount.once(),
         requestTo("http://localhost:8080/api/projects/test-project/languages/")).andRespond(
-            withStatus(HttpStatus.OK)
+            withStatus(status)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("[{\"code\":\"en\", \"translated\":1},{\"code\":\"de\"}]"));
   }
 
   private void mockResponse(String body) {
+    mockResponse(body, HttpStatus.OK);
+  }
+
+  private void mockResponse(String body, HttpStatus status) {
     try {
       String url = "http://localhost:8080/api/translations/test-project/test-comp/en/units/";
-      DefaultResponseCreator response = withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON);
+      DefaultResponseCreator response = withStatus(status).contentType(MediaType.APPLICATION_JSON);
       if (body != null) {
         response.body(body);
       }
@@ -94,6 +104,14 @@ class WeblateMessageSourceTest {
     messageSource.reloadExistingLocales();
     assertTrue(messageSource.getExistingLocales().contains(Locale.ENGLISH));
     assertFalse(messageSource.getExistingLocales().contains(Locale.GERMAN));
+  }
+
+  @Test
+  void handleErrorInReloadExistingLocales() {
+    mockGetLocales(HttpStatus.INTERNAL_SERVER_ERROR);
+
+    messageSource.reloadExistingLocales();
+    assertTrue(messageSource.getExistingLocales().isEmpty());
   }
 
   @Test
@@ -190,6 +208,21 @@ class WeblateMessageSourceTest {
 
     key1Value = messageSource.getMessage("key1", null, Locale.ENGLISH);
     assertEquals(TEXT1, key1Value);
+  }
+
+  @Test
+  void handlesHttpErrorLoadingTranslations() {
+    mockGetLocales();
+    mockResponse(null, HttpStatus.UNAUTHORIZED);
+
+    assertThrows(NoSuchMessageException.class, () -> messageSource.getMessage("key1", null, Locale.ENGLISH));
+  }
+
+  @Test
+  void handlesHttpErrorLoadingLanguages() {
+    mockGetLocales(HttpStatus.NOT_FOUND);
+
+    assertThrows(NoSuchMessageException.class, () -> messageSource.getMessage("key1", null, Locale.ENGLISH));
   }
 
 }
