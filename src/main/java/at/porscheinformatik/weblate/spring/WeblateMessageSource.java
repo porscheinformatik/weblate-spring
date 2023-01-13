@@ -545,10 +545,10 @@ class Unit {
 }
 
 class CacheEntry {
-  public final Properties properties;
-  public final long timestamp;
+  final Properties properties;
+  final long timestamp;
 
-  public CacheEntry(Properties properties, long timestamp) {
+  CacheEntry(Properties properties, long timestamp) {
     this.properties = properties;
     this.timestamp = timestamp;
   }

@@ -9,7 +9,10 @@ import java.util.regex.Pattern;
 /**
  * Utility class for handling Weblate locale codes.
  */
-public class WeblateUtils {
+class WeblateUtils {
+
+  private WeblateUtils() {
+  }
 
   private static final Pattern WEBLATE_LOCALE_PATTERN = Pattern.compile(
     "^(?<lang>[a-z]{2,3})(?:_(?<script>[a-z]{4}))?(?:_(?<region>[a-z]{2}))?(?:_(?<variant>[a-z0-9-]{5,8})|@(?<xvariant>[a-z0-9-]{1,8}))?$", Pattern.CASE_INSENSITIVE);
@@ -20,7 +23,7 @@ public class WeblateUtils {
    * @param code the code to derive from
    * @return the derived locale or null when no locale could be derived
    */
-  public static Locale deriveLocaleFromCode(String code) {
+  static Locale deriveLocaleFromCode(String code) {
     if (Objects.isNull(code)) {
       return null;
     }
