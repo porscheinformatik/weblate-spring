@@ -3,8 +3,7 @@ package at.porscheinformatik.weblate.spring;
 import static java.util.Collections.emptySet;
 import static java.util.Collections.singletonList;
 
-import java.net.URISyntaxException;
-import java.net.URL;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.MessageFormat;
@@ -37,6 +36,7 @@ import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
@@ -351,7 +351,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
     translationsCache.put(locale, cacheEntry);
 
-    if (cacheEntry.properties.size() == 0) {
+    if (!async && cacheEntry.properties.size() == 0) {
       logger.info("No translations available for locale " + locale);
     }
 
@@ -410,10 +410,10 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       restTemplate = createRestTemplate();
     }
 
-    UnitsResponse body;
-    while (true) {
+    while (request != null) {
+
       ResponseEntity<UnitsResponse> response = restTemplate.exchange(request, UnitsResponse.class);
-      body = response.getBody();
+      UnitsResponse body = response.getBody();
       if (response.getStatusCodeValue() < 200 || response.getStatusCodeValue() >= 300 || body == null) {
         logger.warn(String.format("Got empty or non-200 response (status=%s, body=%s)", response.getStatusCode(),
             response.getBody()));
@@ -424,14 +424,11 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
         properties.put(unit.code, unit.target[0]);
       }
 
-      if (body.next == null) {
-        break;
-      }
-
-      try {
-        request = RequestEntity.get(body.next.toURI()).accept(MediaType.APPLICATION_JSON).build();
-      } catch (URISyntaxException e) {
-        throw new RuntimeException(e);
+      // check for next request
+      if (body.next != null) {
+        request = RequestEntity.get(body.next).accept(MediaType.APPLICATION_JSON).build();
+      } else {
+        request = null;
       }
     }
   }
@@ -541,14 +538,26 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 }
 
 class UnitsResponse {
-  public URL next;
-  public List<Unit> results;
+  final URI next;
+  final List<Unit> results;
+
+  @JsonCreator
+  public UnitsResponse(@JsonProperty("next") URI next, @JsonProperty("results") List<Unit> results) {
+    this.next = next;
+    this.results = results;
+  }
 }
 
 class Unit {
   @JsonProperty("context")
-  public String code;
-  public String[] target;
+  final String code;
+  final String[] target;
+
+  @JsonCreator
+  public Unit(@JsonProperty("code") String code, @JsonProperty("target") String[] target) {
+    this.code = code;
+    this.target = target;
+  }
 }
 
 class CacheEntry {
