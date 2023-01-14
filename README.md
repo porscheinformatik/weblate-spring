@@ -29,6 +29,10 @@ set a `ResourceBundleMessageSource` as the parent of the `WeblateMessageSource`.
 the message source. This is needed when you want to get all your translations to your client (for example in a Single
 Page App). The `AllPropertiesReloadableResourceBundleMessageSource` should also be used in this context.
 
+The implementation can also be switched to use asynchronous loading. In this case the texts will be loaded in a 
+separate thread in the background. This means that the first time you get a property it will fall-back to the 
+parent `MessageSource`. As soon as the loading is done the new translated texts will be available.
+
 Here is a full example bean configuration for a Spring Boot app (with "messages" as the default bundle):
 
 ```java
@@ -40,6 +44,7 @@ public WeblateMessageSource messageSource() {
   weblateMessageSource.setProject("my-project");
   weblateMessageSource.setComponent("my-component");
   weblateMessageSource.useAuthentication("api-key");
+  weblateMessageSource.setAsync(true); // <- set this for asynchronous loading
   weblateMessageSource.setParentMessageSource(localMessageSource());
   return weblateMessageSource;
 }
