@@ -414,7 +414,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
       ResponseEntity<UnitsResponse> response = restTemplate.exchange(request, UnitsResponse.class);
       UnitsResponse body = response.getBody();
-      if (response.getStatusCodeValue() < 200 || response.getStatusCodeValue() >= 300 || body == null) {
+      if (!response.getStatusCode().is2xxSuccessful() || body == null) {
         logger.warn(String.format("Got empty or non-200 response (status=%s, body=%s)", response.getStatusCode(),
             response.getBody()));
         break;
@@ -447,7 +447,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
     ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(request, LIST_MAP_STRING_OBJECT);
     List<Map<String, Object>> body = response.getBody();
-    if (response.getStatusCodeValue() >= 200 && response.getStatusCodeValue() < 300 && body != null) {
+    if (response.getStatusCode().is2xxSuccessful() && body != null) {
       existingLocales = body.stream()
           .filter(this::containsTranslations)
           .map(this::extractCode)
