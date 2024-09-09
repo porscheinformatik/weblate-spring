@@ -14,6 +14,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Dependencies
 
 - Spring Boot 3 (#82)
+- Update all Maven plugins
 
 ## [0.8.0] - (https://github.com/porscheinformatik/weblate-spring/compare/v0.7.1...v0.8.0) - 2023-01-14
 
