@@ -13,7 +13,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Dependencies
 
-- Update dependency org.apache.maven.plugins:maven-surefire-plugin to v3.5.3 (#90)
+- org.apache.maven.plugins:maven-surefire-plugin to v3.5.3 (#90)
+- org.apache.maven.plugins:maven-compiler-plugin to v3.14.0 (#88)
+- org.apache.maven.plugins:maven-javadoc-plugin to v3.11.2 (#86)
+- org.apache.maven.plugins:maven-gpg-plugin to v3.2.7 (#74)
 
 ## [0.9.0](https://github.com/porscheinformatik/weblate-spring/compare/v0.8.0...v0.9.0) - 2024-09-11
 
