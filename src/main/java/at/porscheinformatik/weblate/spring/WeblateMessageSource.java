@@ -184,7 +184,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   /**
    * Use async loading - all operations will be performed in a single threaded
    * {@link ExecutorService}.
-   * 
+   *
    * @param async if true loading will be performed asynchronously
    */
   public void setAsync(boolean async) {
@@ -222,7 +222,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    * <p>
    * Please configure the given parameter with UTF-8 as the standard message
    * converter:
-   * 
+   *
    * <pre>
    * <code>restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));</code>
    * </pre>
@@ -336,7 +336,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     Locale languageOnly = new Locale(locale.getLanguage());
     CacheEntry languageCacheEntry = translationsCache.get(languageOnly);
     if (languageCacheEntry != null && !reload && languageCacheEntry.timestamp > now - maxAgeMilis) {
-      cacheEntry.properties.putAll(languageCacheEntry.properties);
+      languageCacheEntry.properties.forEach(cacheEntry.properties::putIfAbsent);
     } else {
       loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
     }
