@@ -5,7 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.0] - (https://github.com/porscheinformatik/weblate-spring/compare/v0.8.0...v0.9.0) - 2024-09-11
+## [0.9.1](https://github.com/porscheinformatik/weblate-spring/compare/v0.9.0...v0.9.1) - 2025-04-22
+
+### Fixed
+
+- Fix country-specific cache being overwritten by language only cache-entry (#91)
+
+### Dependencies
+
+- Update dependency org.apache.maven.plugins:maven-surefire-plugin to v3.5.3 (#90)
+
+## [0.9.0](https://github.com/porscheinformatik/weblate-spring/compare/v0.8.0...v0.9.0) - 2024-09-11
 
 ### BREAKING CHANGES
 
@@ -16,7 +26,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Spring Boot 3 (#82) and switch to current Spring Web API (#83)
 - Update all Maven plugins (#84)
 
-## [0.8.0] - (https://github.com/porscheinformatik/weblate-spring/compare/v0.7.1...v0.8.0) - 2023-01-14
+## [0.8.0](https://github.com/porscheinformatik/weblate-spring/compare/v0.7.1...v0.8.0) - 2023-01-14
 
 ### BREAKING CHANGES
 
