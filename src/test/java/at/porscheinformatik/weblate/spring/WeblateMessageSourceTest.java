@@ -246,4 +246,16 @@ class WeblateMessageSourceTest {
     assertEquals(TEXT1, messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH));
   }
 
+  @Test
+  void allPropertiesWithParent() {
+    var parent = Mockito.mock(AllPropertiesReloadableResourceBundleMessageSource.class);
+    var properties = new Properties();
+
+    when(parent.getAllProperties(Locale.ENGLISH)).thenReturn(properties);
+    messageSource.setParentMessageSource(parent);
+    messageSource.getAllProperties(Locale.ENGLISH);
+
+    assertEquals(properties, messageSource.getAllProperties(Locale.ENGLISH));
+  }
+
 }
