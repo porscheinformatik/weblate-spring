@@ -176,6 +176,7 @@ class WeblateMessageSourceTest {
   }
 
   @Test
+  @SuppressWarnings("java:S2925")
   void cacheTimeout() throws Exception {
     mockGetLocales();
     mockResponse(RESPONSE_OK);
@@ -186,12 +187,15 @@ class WeblateMessageSourceTest {
     assertEquals(TEXT2, messageSource.resolveCodeWithoutArguments("key2", Locale.ENGLISH));
 
     messageSource.setMaxAgeMilis(1000);
+
     Thread.sleep(1001);
+
     assertEquals(TEXT1_CHANGED, messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH));
     assertEquals(TEXT2, messageSource.resolveCodeWithoutArguments("key2", Locale.ENGLISH));
   }
 
   @Test
+  @SuppressWarnings("java:S2925")
   void asyncLoading() throws Exception {
     messageSource.setAsync(true);
     MessageSource parentMessageSource = Mockito.mock(MessageSource.class);
@@ -219,10 +223,27 @@ class WeblateMessageSourceTest {
   }
 
   @Test
+  void handlesEmptyBody() {
+    mockGetLocales();
+    mockResponse("", HttpStatus.OK);
+
+    assertThrows(NoSuchMessageException.class, () -> messageSource.getMessage("key1", null, Locale.ENGLISH));
+  }
+
+  @Test
   void handlesHttpErrorLoadingLanguages() {
     mockGetLocales(HttpStatus.NOT_FOUND);
 
     assertThrows(NoSuchMessageException.class, () -> messageSource.getMessage("key1", null, Locale.ENGLISH));
+  }
+
+  @Test
+  void useAuthentication() {
+    messageSource.useAuthentication("authtoken");
+    mockGetLocales();
+    mockResponse(RESPONSE_OK);
+
+    assertEquals(TEXT1, messageSource.resolveCodeWithoutArguments("key1", Locale.ENGLISH));
   }
 
 }
