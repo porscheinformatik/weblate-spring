@@ -52,7 +52,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * </p>
  */
 public class WeblateMessageSource extends AbstractMessageSource implements AllPropertiesSource {
-  private static final ParameterizedTypeReference<List<Map<String, Object>>> LIST_MAP_STRING_OBJECT = new ParameterizedTypeReference<List<Map<String, Object>>>() {
+  private static final ParameterizedTypeReference<List<Map<String, Object>>> LIST_MAP_STRING_OBJECT = new ParameterizedTypeReference<>() {
   };
 
   private RestTemplate restTemplate;
@@ -315,7 +315,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     List<Locale> keys = translationsCache.entrySet().stream()
         .filter(e -> e.getValue().properties.isEmpty())
         .map(Entry::getKey)
-        .collect(Collectors.toList());
+        .toList();
 
     keys.forEach(translationsCache::remove);
   }
@@ -478,18 +478,17 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     translations.forEach(allProperties::putIfAbsent);
 
     MessageSource parentMessageSource = getParentMessageSource();
-    if (parentMessageSource instanceof AllPropertiesSource) {
-      ((AllPropertiesSource) parentMessageSource).getAllProperties(locale)
-          .forEach(allProperties::putIfAbsent);
+    if (parentMessageSource instanceof AllPropertiesSource messageSource) {
+      messageSource.getAllProperties(locale).forEach(allProperties::putIfAbsent);
     }
 
     return allProperties;
   }
 
-  private boolean containsTranslations(Map<String, Object> entry) {
-    Object translatedCount = entry.get("translated");
-    return translatedCount instanceof Integer && ((Integer) translatedCount) > 0;
-  }
+    private boolean containsTranslations(Map<String, Object> entry) {
+        Object translatedCount = entry.get("translated");
+        return translatedCount instanceof Integer translatedCountInt && translatedCountInt > 0;
+    }
 
   private String extractCode(Map<String, Object> entry) {
     return Optional.ofNullable(entry.get("code"))
