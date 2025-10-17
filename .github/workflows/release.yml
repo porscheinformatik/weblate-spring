@@ -36,7 +36,7 @@ jobs:
           gpg --no-tty --batch --yes --import ~/.gnupg/gpg-key.asc 
           rm ~/.gnupg/gpg-key.asc
       - name: Deploy to Maven Central
-        run: mvn -B deploy -Possrh -Dgpg.passphrase="${{secrets.GPG_PASSPHRASE}}"
+        run: mvn -B deploy -Pcentral -Dgpg.passphrase="${{secrets.GPG_PASSPHRASE}}"
         env:
           MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
