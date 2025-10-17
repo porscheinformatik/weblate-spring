@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -51,7 +52,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * instead.
  * </p>
  */
-public class WeblateMessageSource extends AbstractMessageSource implements AllPropertiesSource {
+public class WeblateMessageSource extends AbstractMessageSource implements AllPropertiesSource, AutoCloseable {
   private static final ParameterizedTypeReference<List<Map<String, Object>>> LIST_MAP_STRING_OBJECT = new ParameterizedTypeReference<>() {
   };
 
@@ -485,10 +486,26 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     return allProperties;
   }
 
-    private boolean containsTranslations(Map<String, Object> entry) {
-        Object translatedCount = entry.get("translated");
-        return translatedCount instanceof Integer translatedCountInt && translatedCountInt > 0;
+  /**
+   * Shuts down the executor service.
+   */
+  @Override
+  public void close() {
+    executor.shutdown();
+    try {
+      if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+        executor.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      executor.shutdownNow();
+      Thread.currentThread().interrupt();
     }
+  }
+
+  private boolean containsTranslations(Map<String, Object> entry) {
+      Object translatedCount = entry.get("translated");
+      return translatedCount instanceof Integer translatedCountInt && translatedCountInt > 0;
+  }
 
   private String extractCode(Map<String, Object> entry) {
     return Optional.ofNullable(entry.get("code"))
@@ -534,6 +551,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     restTemplate.getMessageConverters().add(0, new StringHttpMessageConverter(StandardCharsets.UTF_8));
     return restTemplate;
   }
+
 }
 
 class UnitsResponse {

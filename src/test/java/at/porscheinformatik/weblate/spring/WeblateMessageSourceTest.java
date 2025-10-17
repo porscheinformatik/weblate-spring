@@ -63,6 +63,7 @@ class WeblateMessageSourceTest {
 
   @AfterEach
   void tearDown() {
+    messageSource.close();
     mockServer.verify();
   }
 
