@@ -35,5 +35,5 @@ jobs:
       - name: Deploy SNAPSHOT to Maven Central
         run: mvn -B deploy -Pcentral -Dgpg.passphrase="${{secrets.GPG_PASSPHRASE}}"
         env:
-          MAVEN_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
-          MAVEN_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          MAVEN_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
