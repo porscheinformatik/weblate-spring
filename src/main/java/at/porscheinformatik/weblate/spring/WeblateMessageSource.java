@@ -322,6 +322,28 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   private Properties loadTranslations(Locale locale, boolean reload) {
+    Properties result = new Properties();
+
+    Locale languageOnly = new Locale(locale.getLanguage());
+    result.putAll(loadTranslationsForCode(languageOnly, reload));
+
+    if (StringUtils.hasText(locale.getCountry())) {
+      Locale languageAndCountry = new Locale(locale.getLanguage(), locale.getCountry());
+      result.putAll(loadTranslationsForCode(languageAndCountry, reload));
+    }
+
+    if (StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript())) {
+      result.putAll(loadTranslationsForCode(locale, reload));
+    }
+
+    if (!async && result.isEmpty()) {
+      logger.info("No translations available for locale " + locale);
+    }
+
+    return result;
+  }
+
+  private Properties loadTranslationsForCode(Locale locale, boolean reload) {
     CacheEntry cacheEntry = translationsCache.get(locale);
     long now = System.currentTimeMillis();
 
@@ -329,34 +351,14 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       return cacheEntry.properties;
     }
 
-    Properties properties = cacheEntry != null ? cacheEntry.properties : new Properties();
     long oldTimestamp = cacheEntry != null ? cacheEntry.timestamp : initialCacheTimestamp;
+    Properties properties = cacheEntry != null ? cacheEntry.properties : new Properties();
 
     cacheEntry = new CacheEntry(properties, now);
-
-    Locale languageOnly = new Locale(locale.getLanguage());
-    CacheEntry languageCacheEntry = translationsCache.get(languageOnly);
-    if (languageCacheEntry != null && !reload && languageCacheEntry.timestamp > now - maxAgeMilis) {
-      languageCacheEntry.properties.forEach(cacheEntry.properties::putIfAbsent);
-    } else {
-      loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
-    }
-
-    if (StringUtils.hasText(locale.getCountry())) {
-      loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp);
-    }
-
-    if (StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript())) {
-      loadTranslation(locale, cacheEntry.properties, oldTimestamp);
-    }
-
+    loadTranslation(locale, properties, oldTimestamp);
     translationsCache.put(locale, cacheEntry);
 
-    if (!async && cacheEntry.properties.size() == 0) {
-      logger.info("No translations available for locale " + locale);
-    }
-
-    return cacheEntry.properties;
+    return properties;
   }
 
   /**
