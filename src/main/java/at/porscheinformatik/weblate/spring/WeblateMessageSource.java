@@ -351,8 +351,8 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
       return cacheEntry.properties;
     }
 
-    long oldTimestamp = cacheEntry != null ? cacheEntry.timestamp : initialCacheTimestamp;
     Properties properties = cacheEntry != null ? cacheEntry.properties : new Properties();
+    long oldTimestamp = cacheEntry != null ? cacheEntry.timestamp : initialCacheTimestamp;
 
     cacheEntry = new CacheEntry(properties, now);
     loadTranslation(locale, properties, oldTimestamp);
