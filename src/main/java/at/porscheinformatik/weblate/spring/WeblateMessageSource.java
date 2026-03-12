@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -68,6 +69,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
 
   private Map<Locale, String> existingLocales;
   private final Map<Locale, CacheEntry> translationsCache = new ConcurrentHashMap<>();
+  private final Map<Locale, CombinedCacheEntry> combinedCache = new ConcurrentHashMap<>();
   private final ExecutorService executor = Executors
       .newSingleThreadExecutor(r -> new Thread(r, "WeblateMessageSource"));
 
@@ -284,6 +286,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     logger.info("Going to clear cache...");
     existingLocales = null;
     translationsCache.clear();
+    combinedCache.clear();
   }
 
   /**
@@ -319,44 +322,71 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
         .toList();
 
     keys.forEach(translationsCache::remove);
+    combinedCache.clear();
   }
 
   private Properties loadTranslations(Locale locale, boolean reload) {
+    Locale languageOnly = new Locale(locale.getLanguage());
+    boolean hasCountry = StringUtils.hasText(locale.getCountry());
+    boolean hasVariant = StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript());
+    Locale languageAndCountry = hasCountry ? new Locale(locale.getLanguage(), locale.getCountry()) : null;
+
+    CacheEntry langEntry = getOrLoadCodeEntry(languageOnly, reload);
+    CacheEntry countryEntry = hasCountry ? getOrLoadCodeEntry(languageAndCountry, reload) : null;
+    CacheEntry variantEntry = hasVariant ? getOrLoadCodeEntry(locale, reload) : null;
+
+    long countryTimestamp = countryEntry != null ? countryEntry.timestamp : 0L;
+    long variantTimestamp = variantEntry != null ? variantEntry.timestamp : 0L;
+
+    if (!reload) {
+      CombinedCacheEntry cachedCombined = combinedCache.get(locale);
+      if (cachedCombined != null
+          && cachedCombined.languageTimestamp == langEntry.timestamp
+          && cachedCombined.countryTimestamp == countryTimestamp
+          && cachedCombined.variantTimestamp == variantTimestamp) {
+        return cachedCombined.properties;
+      }
+    }
+
+    Properties result = new Properties();
+    result.putAll(langEntry.properties);
+    if (countryEntry != null) {
+      result.putAll(countryEntry.properties);
+    }
+    if (variantEntry != null) {
+      result.putAll(variantEntry.properties);
+    }
+
+    if (!async && result.isEmpty()) {
+      logger.info("No translations available for locale " + locale);
+    }
+
+    combinedCache.put(locale, new CombinedCacheEntry(result, langEntry.timestamp, countryTimestamp, variantTimestamp));
+    return result;
+  }
+
+  private CacheEntry getOrLoadCodeEntry(Locale locale, boolean reload) {
     CacheEntry cacheEntry = translationsCache.get(locale);
     long now = System.currentTimeMillis();
 
     if (cacheEntry != null && !reload && cacheEntry.timestamp > now - maxAgeMilis) {
-      return cacheEntry.properties;
+      return cacheEntry;
     }
 
     Properties properties = cacheEntry != null ? cacheEntry.properties : new Properties();
     long oldTimestamp = cacheEntry != null ? cacheEntry.timestamp : initialCacheTimestamp;
 
-    cacheEntry = new CacheEntry(properties, now);
+    boolean success = loadTranslation(locale, properties, oldTimestamp);
 
-    Locale languageOnly = new Locale(locale.getLanguage());
-    CacheEntry languageCacheEntry = translationsCache.get(languageOnly);
-    if (languageCacheEntry != null && !reload && languageCacheEntry.timestamp > now - maxAgeMilis) {
-      languageCacheEntry.properties.forEach(cacheEntry.properties::putIfAbsent);
-    } else {
-      loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
+    if (success) {
+      cacheEntry = new CacheEntry(properties, now);
+      translationsCache.put(locale, cacheEntry);
+    } else if (cacheEntry == null) {
+      cacheEntry = new CacheEntry(properties, 0L);
+      translationsCache.put(locale, cacheEntry);
     }
 
-    if (StringUtils.hasText(locale.getCountry())) {
-      loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp);
-    }
-
-    if (StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript())) {
-      loadTranslation(locale, cacheEntry.properties, oldTimestamp);
-    }
-
-    translationsCache.put(locale, cacheEntry);
-
-    if (!async && cacheEntry.properties.size() == 0) {
-      logger.info("No translations available for locale " + locale);
-    }
-
-    return cacheEntry.properties;
+    return cacheEntry;
   }
 
   /**
@@ -367,7 +397,8 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
    * @param timestamp  where only translations newer than this timestamp are
    *                   loaded (optional)
    */
-  private void loadTranslation(Locale language, Properties properties, long timestamp) {
+  private boolean loadTranslation(Locale language, Properties properties, long timestamp) {
+    AtomicBoolean success = new AtomicBoolean(true);
     CompletableFuture<Map<Locale, String>> loadCodesTask = CompletableFuture.supplyAsync(this::loadCodes);
 
     CompletableFuture<Void> loadTask = loadCodesTask.thenCompose(locales -> {
@@ -379,13 +410,18 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     }).handle((val, e) -> {
       if (e != null) {
         logger.warn("Error loading translation for locale " + language, e);
+        success.set(false);
       }
       return val;
     });
 
     if (!async) {
       loadTask.join();
+      return success.get();
     }
+
+    loadTask.thenRun(combinedCache::clear);
+    return true;
   }
 
   private static String formatTimestampIso(long timestamp) {
@@ -584,5 +620,19 @@ class CacheEntry {
   CacheEntry(Properties properties, long timestamp) {
     this.properties = properties;
     this.timestamp = timestamp;
+  }
+}
+
+class CombinedCacheEntry {
+  final Properties properties;
+  final long languageTimestamp;
+  final long countryTimestamp;
+  final long variantTimestamp;
+
+  CombinedCacheEntry(Properties properties, long languageTimestamp, long countryTimestamp, long variantTimestamp) {
+    this.properties = properties;
+    this.languageTimestamp = languageTimestamp;
+    this.countryTimestamp = countryTimestamp;
+    this.variantTimestamp = variantTimestamp;
   }
 }

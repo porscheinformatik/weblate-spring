@@ -79,6 +79,14 @@ class WeblateMessageSourceTest {
                 .body("[{\"code\":\"en\", \"translated\":1},{\"code\":\"de\"}]"));
   }
 
+  private void mockGetLocalesWithDeAndDeAt() {
+    mockServer.expect(ExpectedCount.once(),
+        requestTo("http://localhost:8080/api/projects/test-project/languages/")).andRespond(
+            withStatus(HttpStatus.OK)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("[{\"code\":\"de\", \"translated\":2},{\"code\":\"de_AT\", \"translated\":1}]"));
+  }
+
   private void mockResponse(String body) {
     mockResponse(body, HttpStatus.OK);
   }
@@ -94,6 +102,18 @@ class WeblateMessageSourceTest {
           requestTo(Matchers.startsWith(url)))
           .andExpect(method(HttpMethod.GET))
           .andRespond(response);
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private void mockTranslationResponse(String languageCode, String body) {
+    try {
+      String url = "http://localhost:8080/api/translations/test-project/test-comp/" + languageCode + "/units/";
+      mockServer.expect(ExpectedCount.once(),
+          requestTo(Matchers.startsWith(url)))
+          .andExpect(method(HttpMethod.GET))
+          .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(body));
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
@@ -257,6 +277,77 @@ class WeblateMessageSourceTest {
     messageSource.getAllProperties(Locale.ENGLISH);
 
     assertEquals(properties, messageSource.getAllProperties(Locale.ENGLISH));
+  }
+
+  @Test
+  void countrySpecificTranslationsCombineWithLanguageTranslations() {
+    mockGetLocalesWithDeAndDeAt();
+
+    // "de" has a language-only key and a shared key (German version)
+    mockTranslationResponse("de", "{\"count\":2,\"next\":null,\"previous\":null,\"results\":["
+        + "{\"id\":1,\"context\":\"de_key\",\"source\":[\"German Key\"],\"target\":[\"German Key\"]},"
+        + "{\"id\":2,\"context\":\"shared_key\",\"source\":[\"German Shared\"],\"target\":[\"German Shared\"]}"
+        + "]}");
+
+    // "de_AT" has a country-specific key and overrides the shared key
+    mockTranslationResponse("de_AT", "{\"count\":2,\"next\":null,\"previous\":null,\"results\":["
+        + "{\"id\":3,\"context\":\"at_key\",\"source\":[\"Austrian Key\"],\"target\":[\"Austrian Key\"]},"
+        + "{\"id\":4,\"context\":\"shared_key\",\"source\":[\"German Shared\"],\"target\":[\"Austrian Shared\"]}"
+        + "]}");
+
+    Properties props = messageSource.getAllProperties(Locale.forLanguageTag("de-AT"));
+    assertEquals("German Key", props.getProperty("de_key"));      // from de
+    assertEquals("Austrian Key", props.getProperty("at_key"));    // from de_AT
+    assertEquals("Austrian Shared", props.getProperty("shared_key")); // de_AT overrides de
+  }
+
+  @Test
+  @SuppressWarnings("java:S2925")
+  void perCodeCacheHasIndependentTimestamps() throws Exception {
+    // Use a short cache lifetime so we can expire de_AT while keeping de fresh
+    messageSource.setMaxAgeMilis(200);
+
+    // Set up ALL mock expectations upfront before any requests are made
+    mockGetLocalesWithDeAndDeAt();
+
+    // Initial full loads (timestamp=0, no time filter in query)
+    mockTranslationResponse("de", "{\"count\":1,\"next\":null,\"previous\":null,\"results\":["
+        + "{\"id\":1,\"context\":\"de_key\",\"source\":[\"G1\"],\"target\":[\"G1\"]}"
+        + "]}");
+    mockTranslationResponse("de_AT", "{\"count\":1,\"next\":null,\"previous\":null,\"results\":["
+        + "{\"id\":2,\"context\":\"at_key\",\"source\":[\"AT1\"],\"target\":[\"AT1\"]}"
+        + "]}");
+
+    // de is reloaded (via reload(de)) after expiry - de_key has changed to G2
+    mockTranslationResponse("de", "{\"count\":1,\"next\":null,\"previous\":null,\"results\":["
+        + "{\"id\":1,\"context\":\"de_key\",\"source\":[\"G1\"],\"target\":[\"G2\"]}"
+        + "]}");
+
+    // de_AT is reloaded in the final getAllProperties - at_key has changed to AT2
+    // de is NOT reloaded (still in cache after the reload above)
+    mockTranslationResponse("de_AT", "{\"count\":1,\"next\":null,\"previous\":null,\"results\":["
+        + "{\"id\":2,\"context\":\"at_key\",\"source\":[\"AT1\"],\"target\":[\"AT2\"]}"
+        + "]}");
+
+    // Initial load: both de and de_AT loaded into separate per-code caches
+    Properties props = messageSource.getAllProperties(Locale.forLanguageTag("de-AT"));
+    assertEquals("G1", props.getProperty("de_key"));
+    assertEquals("AT1", props.getProperty("at_key"));
+
+    // Let both per-code caches expire
+    Thread.sleep(250);
+
+    // Reload de only - this freshens de's independent timestamp
+    messageSource.reload(new Locale("de"));
+
+    // At this point: de cache is fresh (just reloaded with G2), de_AT cache is still expired.
+    // Requesting de-AT should: use de from cache (no HTTP), reload de_AT only (one HTTP).
+    props = messageSource.getAllProperties(Locale.forLanguageTag("de-AT"));
+
+    // de_key must be G2 - from the freshened de cache (per-code caching keeps de independent)
+    assertEquals("G2", props.getProperty("de_key"));
+    // at_key must be AT2 - from the de_AT reload
+    assertEquals("AT2", props.getProperty("at_key"));
   }
 
 }
