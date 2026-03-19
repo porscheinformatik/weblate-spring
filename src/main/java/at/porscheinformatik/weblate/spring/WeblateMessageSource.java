@@ -67,7 +67,19 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private Map<String, Locale> codeToLocale = new HashMap<>();
 
   private Map<Locale, String> existingLocales;
+  /**
+   * Cache keyed by exact Weblate-derived locale (e.g. {@code en}, {@code en_US}, {@code en_US_POSIX}).
+   * Each entry only holds the translations fetched for that specific language code.
+   * Entries are combined on read, so timestamps stay consistent per language code.
+   */
   private final Map<Locale, CacheEntry> translationsCache = new ConcurrentHashMap<>();
+  /**
+   * Merged view cache keyed by the requested locale (e.g. {@code en_US}).
+   * Built by combining all relevant per-code cache levels. Invalidated whenever any
+   * constituent level's timestamp has changed since the merge, so the hot path
+   * (all levels fresh) returns this directly without iterating any {@link Properties}.
+   */
+  private final Map<Locale, MergedCacheEntry> mergedCache = new ConcurrentHashMap<>();
   private final ExecutorService executor = Executors
       .newSingleThreadExecutor(r -> new Thread(r, "WeblateMessageSource"));
 
@@ -284,6 +296,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     logger.info("Going to clear cache...");
     existingLocales = null;
     translationsCache.clear();
+    mergedCache.clear();
   }
 
   /**
@@ -321,42 +334,105 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     keys.forEach(translationsCache::remove);
   }
 
+  /**
+   * Returns the combined translations for the given locale by merging cache entries
+   * for each locale level (language-only → language+country → full locale) in order
+   * of increasing specificity.  More specific entries take precedence.
+   *
+   * <p>Each locale level has its own {@link CacheEntry} with an independent timestamp,
+   * so delta-loading remains consistent: a country-specific cache entry is never
+   * polluted with a stale timestamp from the language-only level.</p>
+   */
   private Properties loadTranslations(Locale locale, boolean reload) {
-    CacheEntry cacheEntry = translationsCache.get(locale);
     long now = System.currentTimeMillis();
 
-    if (cacheEntry != null && !reload && cacheEntry.timestamp > now - maxAgeMilis) {
-      return cacheEntry.properties;
-    }
-
-    Properties properties = cacheEntry != null ? cacheEntry.properties : new Properties();
-    long oldTimestamp = cacheEntry != null ? cacheEntry.timestamp : initialCacheTimestamp;
-
-    cacheEntry = new CacheEntry(properties, now);
-
+    // Determine the locale levels to load, from least to most specific.
+    // Always at least the language-only level; optionally language+country and full locale.
     Locale languageOnly = new Locale(locale.getLanguage());
-    CacheEntry languageCacheEntry = translationsCache.get(languageOnly);
-    if (languageCacheEntry != null && !reload && languageCacheEntry.timestamp > now - maxAgeMilis) {
-      languageCacheEntry.properties.forEach(cacheEntry.properties::putIfAbsent);
-    } else {
-      loadTranslation(new Locale(locale.getLanguage()), cacheEntry.properties, oldTimestamp);
+    Locale languageAndCountry = StringUtils.hasText(locale.getCountry())
+        ? new Locale(locale.getLanguage(), locale.getCountry())
+        : null;
+    boolean hasVariantOrScript = StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript());
+
+    // Refresh stale levels independently.
+    refreshCacheEntry(languageOnly, now, reload);
+    if (languageAndCountry != null && !languageOnly.equals(languageAndCountry)) {
+      refreshCacheEntry(languageAndCountry, now, reload);
+    }
+    if (hasVariantOrScript) {
+      refreshCacheEntry(locale, now, reload);
     }
 
-    if (StringUtils.hasText(locale.getCountry())) {
-      loadTranslation(new Locale(locale.getLanguage(), locale.getCountry()), cacheEntry.properties, oldTimestamp);
+    // Hot path: return the previously merged result if all constituent level cache
+    // entries are the same instances as when it was built (identity check catches both
+    // expiry-triggered refreshes and async loads that replaced a level entry).
+    MergedCacheEntry existing = mergedCache.get(locale);
+    if (existing != null && existing.isStillValid(translationsCache, languageOnly, languageAndCountry,
+        hasVariantOrScript ? locale : null)) {
+      return existing.properties;
     }
 
-    if (StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript())) {
-      loadTranslation(locale, cacheEntry.properties, oldTimestamp);
+    // Build a fresh merge from least-specific to most-specific (later entries win).
+    Properties combined = new Properties();
+    mergeInto(combined, languageOnly);
+    if (languageAndCountry != null && !languageOnly.equals(languageAndCountry)) {
+      mergeInto(combined, languageAndCountry);
+    }
+    if (hasVariantOrScript) {
+      mergeInto(combined, locale);
     }
 
-    translationsCache.put(locale, cacheEntry);
+    mergedCache.put(locale, new MergedCacheEntry(combined, translationsCache, languageOnly,
+        languageAndCountry, hasVariantOrScript ? locale : null));
 
-    if (!async && cacheEntry.properties.size() == 0) {
+    if (!async && combined.isEmpty()) {
       logger.info("No translations available for locale " + locale);
     }
 
-    return cacheEntry.properties;
+    return combined;
+  }
+
+  /**
+   * Puts all entries from the cache for {@code level} into {@code target}.
+   * More-specific callers should invoke this <em>after</em> less-specific ones;
+   * existing keys in {@code target} are <em>overwritten</em> so that the most-specific
+   * value always wins.
+   */
+  private void mergeInto(Properties target, Locale level) {
+    CacheEntry entry = translationsCache.get(level);
+    if (entry != null) {
+      target.putAll(entry.properties);
+    }
+  }
+
+  /**
+   * Ensures the {@link CacheEntry} for {@code level} is populated and up-to-date.
+   * If the entry is absent or expired (or a forced reload is requested) the
+   * translations for exactly this locale level are fetched from Weblate and the
+   * entry is replaced atomically.
+   */
+  private void refreshCacheEntry(Locale level, long now, boolean reload) {
+    CacheEntry existing = translationsCache.get(level);
+
+    if (existing != null && !reload && existing.timestamp > now - maxAgeMilis) {
+      return; // still fresh
+    }
+
+    long oldTimestamp = existing != null ? existing.timestamp : initialCacheTimestamp;
+
+    // Start with a flat copy of the previously cached properties so that delta-loading
+    // (which only returns changed/added entries) can add on top without losing old data.
+    Properties copy = new Properties();
+    if (existing != null) {
+      copy.putAll(existing.properties);
+    }
+
+    // Replace the entry with the current timestamp before loading so that concurrent
+    // requests see a "loading in progress" entry rather than triggering duplicate loads.
+    CacheEntry updated = new CacheEntry(copy, now);
+    translationsCache.put(level, updated);
+
+    loadTranslation(level, updated.properties, oldTimestamp);
   }
 
   /**
@@ -379,6 +455,13 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     }).handle((val, e) -> {
       if (e != null) {
         logger.warn("Error loading translation for locale " + language, e);
+      }
+      // Replace the CacheEntry with a fresh instance so that identity-based checks in
+      // MergedCacheEntry.isStillValid() detect the completion of this load and force a
+      // merged-cache rebuild on the next read (important for async mode).
+      CacheEntry current = translationsCache.get(language);
+      if (current != null) {
+        translationsCache.put(language, new CacheEntry(current.properties, current.timestamp));
       }
       return val;
     });
@@ -584,5 +667,58 @@ class CacheEntry {
   CacheEntry(Properties properties, long timestamp) {
     this.properties = properties;
     this.timestamp = timestamp;
+  }
+}
+
+/**
+ * Cached merged view for a specific requested locale (e.g. {@code en_US}).
+ * Stores the merged {@link Properties} together with the identity of the
+ * per-code {@link CacheEntry} levels used to build it.
+ * <p>
+ * The merged result is valid as long as every constituent level's current
+ * {@link CacheEntry} instance in {@code translationsCache} is the same object
+ * as the one used at build time.  {@code refreshCacheEntry} always puts a new
+ * {@link CacheEntry} instance when a level is refreshed, and {@code loadTranslation}
+ * replaces the entry (again with a new instance) once an async fetch completes.
+ * Either event causes {@link #isStillValid} to return {@code false}, forcing a rebuild.
+ */
+class MergedCacheEntry {
+  final Properties properties;
+  /** Snapshot of per-level CacheEntry instances at merge time, keyed by locale level. */
+  private final Map<Locale, CacheEntry> levelEntries;
+
+  MergedCacheEntry(Properties properties, Map<Locale, CacheEntry> translationsCache,
+      Locale languageOnly, Locale languageAndCountry, Locale full) {
+    this.properties = properties;
+    this.levelEntries = new HashMap<>();
+    snapshot(translationsCache, languageOnly);
+    if (languageAndCountry != null) {
+      snapshot(translationsCache, languageAndCountry);
+    }
+    if (full != null) {
+      snapshot(translationsCache, full);
+    }
+  }
+
+  private void snapshot(Map<Locale, CacheEntry> cache, Locale level) {
+    levelEntries.put(level, cache.get(level)); // may be null if level has no entry
+  }
+
+  boolean isStillValid(Map<Locale, CacheEntry> translationsCache,
+      Locale languageOnly, Locale languageAndCountry, Locale full) {
+    if (!sameEntry(translationsCache, languageOnly)) {
+      return false;
+    }
+    if (languageAndCountry != null && !sameEntry(translationsCache, languageAndCountry)) {
+      return false;
+    }
+    if (full != null && !sameEntry(translationsCache, full)) {
+      return false;
+    }
+    return true;
+  }
+
+  private boolean sameEntry(Map<Locale, CacheEntry> cache, Locale level) {
+    return cache.get(level) == levelEntries.get(level); // intentional identity check
   }
 }
