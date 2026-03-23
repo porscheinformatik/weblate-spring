@@ -712,10 +712,7 @@ class MergedCacheEntry {
     if (languageAndCountry != null && !sameEntry(translationsCache, languageAndCountry)) {
       return false;
     }
-    if (full != null && !sameEntry(translationsCache, full)) {
-      return false;
-    }
-    return true;
+    return full == null || sameEntry(translationsCache, full);
   }
 
   private boolean sameEntry(Map<Locale, CacheEntry> cache, Locale level) {
