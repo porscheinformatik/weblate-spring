@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0](https://github.com/porscheinformatik/weblate-spring/compare/v0.10.0...v0.11.0) - unreleased
+
+### BREAKING CHANGES
+
+- The loading of data was fully refactored and is now asynchronous per default. If you need to load data synchronously, 
+  you can set the property `asyncLoadDelay` in `WeblateMessageSource` to zero. Please check the documentation of the
+  class for more details. (#114)
+
+### Dependencies
+
+- fix(deps): update dependency org.springframework.boot:spring-boot-dependencies to v3.5.12 (#115)
+- chore(deps): update dependency org.apache.maven.plugins:maven-surefire-plugin to v3.5.5 (#112)
+- chore(deps): update dependency org.apache.maven.plugins:maven-compiler-plugin to v3.15.0 (#111)
+- chore(deps): update dependency org.apache.maven.plugins:maven-source-plugin to v3.4.0 (#108)
+- fix(deps): update dependency org.springframework.boot:spring-boot-dependencies to v3.5.11 (#105)
+
 ## [0.10.0](https://github.com/porscheinformatik/weblate-spring/compare/v0.9.1...v0.10.0) - 2025-10-17
 
 ### Fixed
@@ -29,7 +45,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Dependencies
 
-- org.apache.maven.plugins:maven-surefire-plugin to v3.5.3 (#90)
+- org.apache.maven.plugins:maven-surefire-plugin to v3.5.3 (#90)~~~~
 - org.apache.maven.plugins:maven-compiler-plugin to v3.14.0 (#88)
 - org.apache.maven.plugins:maven-javadoc-plugin to v3.11.2 (#86)
 - org.apache.maven.plugins:maven-gpg-plugin to v3.2.7 (#74)
