@@ -65,6 +65,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private long initialCacheTimestamp = 0;
   private boolean async = false;
   private Map<String, Locale> codeToLocale = new HashMap<>();
+  private Locale defaultFallbackLocale;
 
   private Map<Locale, String> existingLocales;
   /**
@@ -280,6 +281,26 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
+   * @return the default fallback locale that is used for loading translations that
+   * are not available in the requested locale, but are available in the default
+   * fallback locale. Default is null and thus disabled.
+   */
+  public Locale getDefaultFallbackLocale() {
+    return defaultFallbackLocale;
+  }
+
+  /**
+   * Set the default fallback locale that is used for loading translations that are
+   * not available in the requested locale, but are available in the default
+   * fallback locale. Set null to disable. Default is null and thus disabled.
+   *
+   * @param defaultFallbackLocale the default fallback locale
+   */
+  public void setDefaultFallbackLocale(Locale defaultFallbackLocale) {
+    this.defaultFallbackLocale = defaultFallbackLocale;
+  }
+
+  /**
    * Registers a manual mapping of a Weblate code to a {@link Locale}.
    *
    * @param code   the Weblate language code
@@ -355,6 +376,9 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
     boolean hasVariantOrScript = StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript());
 
     // Refresh stale levels independently.
+    if (defaultFallbackLocale != null) {
+      refreshCacheEntry(defaultFallbackLocale, now, reload);
+    }
     refreshCacheEntry(languageOnly, now, reload);
     if (languageAndCountry != null && !languageOnly.equals(languageAndCountry)) {
       refreshCacheEntry(languageAndCountry, now, reload);
