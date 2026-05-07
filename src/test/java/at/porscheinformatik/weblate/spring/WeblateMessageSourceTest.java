@@ -88,6 +88,14 @@ class WeblateMessageSourceTest {
                 .body("[{\"code\":\"en\", \"translated\":1},{\"code\":\"en_US\", \"translated\":1}]"));
   }
 
+  private void mockGetLocalesWithFallback() {
+    mockServer.expect(ExpectedCount.once(),
+        requestTo("http://localhost:8080/api/projects/test-project/languages/")).andRespond(
+            withStatus(HttpStatus.OK)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("[{\"code\":\"en\", \"translated\":1},{\"code\":\"de\", \"translated\":1}]"));
+  }
+
   private void mockResponseForCode(String languageCode, String body) {
     mockResponseForCode(languageCode, body, HttpStatus.OK);
   }
@@ -286,6 +294,29 @@ class WeblateMessageSourceTest {
     messageSource.getAllProperties(Locale.ENGLISH);
 
     assertEquals(properties, messageSource.getAllProperties(Locale.ENGLISH));
+  }
+
+  @Test
+  void defaultFallbackLocale() {
+    String enResponse = "{\"count\":2,\"next\":null,\"previous\":null,\"results\":["
+        + "{\"id\":1,\"context\":\"key1\",\"target\":[\"en-key1\"]},"
+        + "{\"id\":2,\"context\":\"key2\",\"target\":[\"en-key2\"]}"
+        + "]}";
+    String deResponse = "{\"count\":1,\"next\":null,\"previous\":null,\"results\":["
+        + "{\"id\":1,\"context\":\"key1\",\"target\":[\"de-key1\"]}"
+        + "]}";
+
+    messageSource.setDefaultFallbackLocale(Locale.ENGLISH);
+    mockGetLocalesWithFallback();
+    mockResponseForCode("en", enResponse);
+    mockResponseForCode("de", deResponse);
+
+    Properties allProperties = messageSource.getAllProperties(Locale.GERMAN);
+
+    assertEquals("de-key1", allProperties.getProperty("key1"));
+    assertEquals("en-key2", allProperties.getProperty("key2"));
+    assertEquals("de-key1", messageSource.resolveCodeWithoutArguments("key1", Locale.GERMAN));
+    assertEquals("en-key2", messageSource.resolveCodeWithoutArguments("key2", Locale.GERMAN));
   }
 
   /**
