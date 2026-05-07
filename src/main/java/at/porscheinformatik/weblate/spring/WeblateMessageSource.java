@@ -10,6 +10,7 @@ import java.text.MessageFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -65,6 +66,7 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   private long initialCacheTimestamp = 0;
   private boolean async = false;
   private Map<String, Locale> codeToLocale = new HashMap<>();
+  private Locale defaultFallbackLocale;
 
   private Map<Locale, String> existingLocales;
   /**
@@ -280,6 +282,26 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
   }
 
   /**
+   * @return the default fallback locale that is used for loading translations that
+   * are not available in the requested locale, but are available in the default
+   * fallback locale. Default is null and thus disabled.
+   */
+  public Locale getDefaultFallbackLocale() {
+    return defaultFallbackLocale;
+  }
+
+  /**
+   * Set the default fallback locale that is used for loading translations that are
+   * not available in the requested locale, but are available in the default
+   * fallback locale. Set null to disable. Default is null and thus disabled.
+   *
+   * @param defaultFallbackLocale the default fallback locale
+   */
+  public void setDefaultFallbackLocale(Locale defaultFallbackLocale) {
+    this.defaultFallbackLocale = defaultFallbackLocale;
+  }
+
+  /**
    * Registers a manual mapping of a Weblate code to a {@link Locale}.
    *
    * @param code   the Weblate language code
@@ -353,37 +375,39 @@ public class WeblateMessageSource extends AbstractMessageSource implements AllPr
         ? new Locale(locale.getLanguage(), locale.getCountry())
         : null;
     boolean hasVariantOrScript = StringUtils.hasText(locale.getVariant()) || StringUtils.hasText(locale.getScript());
+    Set<Locale> mergeLevels = new LinkedHashSet<>();
 
-    // Refresh stale levels independently.
-    refreshCacheEntry(languageOnly, now, reload);
-    if (languageAndCountry != null && !languageOnly.equals(languageAndCountry)) {
-      refreshCacheEntry(languageAndCountry, now, reload);
+    if (defaultFallbackLocale != null) {
+      mergeLevels.add(defaultFallbackLocale);
+    }
+    mergeLevels.add(languageOnly);
+    if (languageAndCountry != null) {
+      mergeLevels.add(languageAndCountry);
     }
     if (hasVariantOrScript) {
-      refreshCacheEntry(locale, now, reload);
+      mergeLevels.add(locale);
+    }
+
+    // Refresh stale levels independently.
+    for (Locale level : mergeLevels) {
+      refreshCacheEntry(level, now, reload);
     }
 
     // Hot path: return the previously merged result if all constituent level cache
     // entries are the same instances as when it was built (identity check catches both
     // expiry-triggered refreshes and async loads that replaced a level entry).
     MergedCacheEntry existing = mergedCache.get(locale);
-    if (existing != null && existing.isStillValid(translationsCache, languageOnly, languageAndCountry,
-        hasVariantOrScript ? locale : null)) {
+    if (existing != null && existing.isStillValid(translationsCache, mergeLevels)) {
       return existing.properties;
     }
 
     // Build a fresh merge from least-specific to most-specific (later entries win).
     Properties combined = new Properties();
-    mergeInto(combined, languageOnly);
-    if (languageAndCountry != null && !languageOnly.equals(languageAndCountry)) {
-      mergeInto(combined, languageAndCountry);
-    }
-    if (hasVariantOrScript) {
-      mergeInto(combined, locale);
+    for (Locale level : mergeLevels) {
+      mergeInto(combined, level);
     }
 
-    mergedCache.put(locale, new MergedCacheEntry(combined, translationsCache, languageOnly,
-        languageAndCountry, hasVariantOrScript ? locale : null));
+    mergedCache.put(locale, new MergedCacheEntry(combined, translationsCache, mergeLevels));
 
     if (!async && combined.isEmpty()) {
       logger.info("No translations available for locale " + locale);
@@ -687,16 +711,11 @@ class MergedCacheEntry {
   /** Snapshot of per-level CacheEntry instances at merge time, keyed by locale level. */
   private final Map<Locale, CacheEntry> levelEntries;
 
-  MergedCacheEntry(Properties properties, Map<Locale, CacheEntry> translationsCache,
-      Locale languageOnly, Locale languageAndCountry, Locale full) {
+  MergedCacheEntry(Properties properties, Map<Locale, CacheEntry> translationsCache, Set<Locale> levels) {
     this.properties = properties;
     this.levelEntries = new HashMap<>();
-    snapshot(translationsCache, languageOnly);
-    if (languageAndCountry != null) {
-      snapshot(translationsCache, languageAndCountry);
-    }
-    if (full != null) {
-      snapshot(translationsCache, full);
+    for (Locale level : levels) {
+      snapshot(translationsCache, level);
     }
   }
 
@@ -704,15 +723,8 @@ class MergedCacheEntry {
     levelEntries.put(level, cache.get(level)); // may be null if level has no entry
   }
 
-  boolean isStillValid(Map<Locale, CacheEntry> translationsCache,
-      Locale languageOnly, Locale languageAndCountry, Locale full) {
-    if (!sameEntry(translationsCache, languageOnly)) {
-      return false;
-    }
-    if (languageAndCountry != null && !sameEntry(translationsCache, languageAndCountry)) {
-      return false;
-    }
-    return full == null || sameEntry(translationsCache, full);
+  boolean isStillValid(Map<Locale, CacheEntry> translationsCache, Set<Locale> levels) {
+    return levels.stream().allMatch(level -> sameEntry(translationsCache, level));
   }
 
   private boolean sameEntry(Map<Locale, CacheEntry> cache, Locale level) {
