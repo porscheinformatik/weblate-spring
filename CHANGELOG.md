@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres
 to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.11.0](https://github.com/porscheinformatik/weblate-spring/compare/v0.10.0...v0.11.0) - unreleased
+## [0.11.0](https://github.com/porscheinformatik/weblate-spring/compare/v0.10.0...v0.11.0) - 2026-07-03
 
 ### BREAKING CHANGES
 
@@ -13,8 +13,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   you can set the property `asyncLoadDelay` in `WeblateMessageSource` to zero. Please check the documentation of the
   class for more details. (#114)
 
+### Features
+
+- Add support for a default fallback locale (#118)
+
 ### Dependencies
 
+- fix(deps): update dependency org.springframework.boot:spring-boot-dependencies to v3.5.16 (#117)
+- chore(deps): update dependency org.apache.maven.plugins:maven-surefire-plugin to v3.5.6 (#119)
+- chore(deps): update dependency org.sonatype.central:central-publishing-maven-plugin to v0.11.0 (#120)
+- chore(deps): update actions/checkout action to v7 (#121)
+- chore(deps): update actions/cache action to v6 (#122)
 - fix(deps): update dependency org.springframework.boot:spring-boot-dependencies to v3.5.12 (#115)
 - chore(deps): update dependency org.apache.maven.plugins:maven-surefire-plugin to v3.5.5 (#112)
 - chore(deps): update dependency org.apache.maven.plugins:maven-compiler-plugin to v3.15.0 (#111)
