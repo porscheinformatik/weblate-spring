@@ -6,7 +6,7 @@
 
   <name>Weblate Spring Integration</name>
   <description>Provides a Spring MessageSource backed by Weblate.</description>
-  <url>https://github.com/porscheinformatik/zanata-spring</url>
+  <url>https://github.com/porscheinformatik/weblate-spring</url>
 
   <organization>
     <name>Porsche Informatik</name>
